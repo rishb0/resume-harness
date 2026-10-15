@@ -1,0 +1,20 @@
+{
+  "title": "Junior Web Application Security Engineer",
+  "seniority": "Junior",
+  "role_family": "Application security",
+  "summary": "Entry-level role testing web applications and APIs, writing vulnerability reports, and supporting disclosure.",
+  "must_have": [
+    "Hands-on web application testing experience (internship, lab or research counts)",
+    "Working knowledge of Burp Suite and Python",
+    "Clear written communication",
+    "Degree in Computer Science or a related field, or equivalent experience"
+  ],
+  "nice_to_have": ["Docker experience", "Penetration testing certification", "Kubernetes basics"],
+  "keywords": ["web application security", "OWASP Top 10", "Burp Suite", "Python", "vulnerability reports",
+               "Docker", "responsible disclosure", "penetration testing", "Kubernetes"],
+  "responsibilities": ["Test web applications and APIs for OWASP Top 10 vulnerabilities",
+                       "Write vulnerability reports and track fixes",
+                       "Support responsible disclosure with outside researchers"],
+  "constraints": ["Hybrid in Springfield", "Right to work required"],
+  "red_flags": []
+}

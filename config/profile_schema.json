@@ -1,0 +1,76 @@
+{
+  "list_fields": ["bullets", "metrics", "technologies", "evidence"],
+  "reserved": ["id", "section", "created", "updated"],
+  "sections": {
+    "education": {
+      "prefix": "edu", "title": "Education",
+      "required": ["degree", "organization"],
+      "allowed": ["degree", "field", "organization", "location", "start", "end", "grade", "bullets", "url", "notes"]
+    },
+    "experience": {
+      "prefix": "exp", "title": "Experience",
+      "required": ["title", "organization"],
+      "allowed": ["title", "organization", "location", "start", "end", "employment_type", "bullets", "metrics", "technologies", "url", "notes"]
+    },
+    "internship": {
+      "prefix": "int", "title": "Internships",
+      "required": ["title", "organization"],
+      "allowed": ["title", "organization", "location", "start", "end", "bullets", "metrics", "technologies", "url", "notes"]
+    },
+    "project": {
+      "prefix": "prj", "title": "Projects",
+      "required": ["title"],
+      "allowed": ["title", "role", "start", "end", "description", "bullets", "metrics", "technologies", "url", "notes"]
+    },
+    "research": {
+      "prefix": "res", "title": "Research",
+      "required": ["title"],
+      "allowed": ["title", "organization", "date", "status", "description", "bullets", "metrics", "technologies", "url", "notes"]
+    },
+    "publication": {
+      "prefix": "pub", "title": "Publications",
+      "required": ["title"],
+      "allowed": ["title", "venue", "date", "authors", "status", "url", "notes"]
+    },
+    "certification": {
+      "prefix": "cer", "title": "Certifications",
+      "required": ["title", "issuer"],
+      "allowed": ["title", "issuer", "date", "expires", "credential_id", "status", "url", "notes"]
+    },
+    "achievement": {
+      "prefix": "ach", "title": "Achievements",
+      "required": ["title"],
+      "allowed": ["title", "organization", "date", "description", "url", "notes"]
+    },
+    "skill": {
+      "prefix": "skl", "title": "Skills",
+      "required": ["name"],
+      "allowed": ["name", "category", "level", "years", "evidence", "notes"]
+    },
+    "open_source": {
+      "prefix": "oss", "title": "Open Source",
+      "required": ["title"],
+      "allowed": ["title", "role", "url", "description", "bullets", "technologies", "notes"]
+    },
+    "volunteer": {
+      "prefix": "vol", "title": "Volunteer",
+      "required": ["title", "organization"],
+      "allowed": ["title", "organization", "location", "start", "end", "bullets", "url", "notes"]
+    },
+    "language": {
+      "prefix": "lng", "title": "Languages",
+      "required": ["name"],
+      "allowed": ["name", "level"]
+    },
+    "link": {
+      "prefix": "lnk", "title": "Links",
+      "required": ["label", "url"],
+      "allowed": ["label", "url"]
+    },
+    "other": {
+      "prefix": "oth", "title": "Other",
+      "required": ["title"],
+      "allowed": ["title", "description", "bullets", "notes"]
+    }
+  }
+}

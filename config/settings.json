@@ -1,0 +1,57 @@
+{
+  "recon_max_age_days": 30,
+  "default_region": "other",
+  "default_pages": 1,
+  "default_max_pages": 2,
+  "statuses": ["draft", "built", "reviewed", "applied", "interview", "offer", "rejected", "withdrawn"],
+  "standard_headings": [
+    "Summary", "Professional Summary", "Experience", "Professional Experience", "Work Experience",
+    "Internships", "Projects", "Selected Projects", "Research", "Security Research",
+    "Vulnerability Research", "Publications", "Technical Writing", "Education", "Skills",
+    "Technical Skills", "Certifications", "Achievements", "Awards", "Open Source",
+    "Volunteer Experience", "Volunteering", "Leadership", "Training", "Languages"
+  ],
+  "max_links": 3,
+  "blocked_link_domains": [
+    "instagram.com", "facebook.com", "fb.com", "fb.me", "twitter.com", "x.com", "whatsapp.com", "wa.me",
+    "t.me", "telegram.org", "telegram.me", "snapchat.com", "tiktok.com", "pinterest.com", "reddit.com",
+    "threads.net", "discord.com", "discord.gg"
+  ],
+  "blocked_link_words": [
+    "instagram", "insta", "facebook", "twitter", "whatsapp", "telegram", "snapchat", "tiktok", "pinterest",
+    "reddit", "discord", "threads"
+  ],
+  "headline_honest_prefixes": [
+    "aspiring", "seeking", "entry-level", "entry level", "graduate", "fresher", "student", "candidate",
+    "recent graduate", "trainee"
+  ],
+  "personal_data_terms": [
+    "date of birth", "d.o.b", "dob", "birth date", "birthdate", "born on", "marital status", "married",
+    "religion", "gender", "father's name", "fathers name", "mother's name", "mothers name",
+    "aadhaar", "aadhar", "pan card", "pan number", "pan no", "passport no", "passport number",
+    "national id", "social security", "ssn", "age:", "caste"
+  ],
+  "photo": {"height_cm": 3.0, "width_cm": 2.6, "max_mb": 3, "min_short_side_px": 400},
+  "lint": {
+    "bullet_max_words": 30,
+    "bullet_min_words": 5,
+    "summary_max_words": 60,
+    "summary_max_sentences": 3,
+    "repeat_opener_limit": 2,
+    "gap_months_warn": 6,
+    "sparse_fill_warn": 0.6
+  },
+  "banned_phrases": [
+    "hard-working", "hard working", "hardworking", "passionate", "innovative", "dynamic", "synergy",
+    "results-driven", "results driven", "team player", "go-getter", "self-motivated", "highly motivated",
+    "responsible for", "worked on", "helped with", "various", "etc", "detail-oriented", "detail oriented",
+    "fast learner", "quick learner", "proven track record", "think outside the box", "rockstar", "ninja"
+  ],
+  "autofit_presets": [
+    {"name": "airy",    "font": "11pt", "margin_h": "0.80in", "margin_v": "0.70in", "linespread": "1.08", "itemsep": "3pt",   "sec_before": "12pt", "sec_after": "4pt"},
+    {"name": "roomy",   "font": "11pt", "margin_h": "0.70in", "margin_v": "0.60in", "linespread": "1.03", "itemsep": "2pt",   "sec_before": "10pt", "sec_after": "3pt"},
+    {"name": "regular", "font": "10pt", "margin_h": "0.70in", "margin_v": "0.60in", "linespread": "1.05", "itemsep": "2pt",   "sec_before": "9pt",  "sec_after": "3pt"},
+    {"name": "compact", "font": "10pt", "margin_h": "0.65in", "margin_v": "0.55in", "linespread": "1.00", "itemsep": "1pt",   "sec_before": "8pt",  "sec_after": "3pt"},
+    {"name": "tight",   "font": "10pt", "margin_h": "0.55in", "margin_v": "0.50in", "linespread": "0.97", "itemsep": "0.5pt", "sec_before": "6pt",  "sec_after": "2pt"}
+  ]
+}

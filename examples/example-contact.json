@@ -1,0 +1,7 @@
+{
+  "name": "Alex Example",
+  "email": "alex.example@example.com",
+  "phone": "+00 00000 00000",
+  "location": "Springfield",
+  "links": [{"label": "GitHub", "url": "https://github.com/alex-example"}]
+}

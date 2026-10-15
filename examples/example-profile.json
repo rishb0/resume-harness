@@ -1,0 +1,28 @@
+{
+  "entries": [
+    {"section": "education", "degree": "B.Tech in Computer Science", "organization": "Example Institute of Technology",
+     "location": "Springfield", "start": "2019", "end": "2023", "grade": "8.1 CGPA"},
+    {"section": "internship", "title": "Security Intern", "organization": "Sample Securities Ltd",
+     "start": "2022-06", "end": "2022-08",
+     "bullets": ["Tested 4 internal web applications for common vulnerabilities and wrote findings for the developers",
+                 "Reported 11 issues, 3 rated high severity, and verified the fixes"],
+     "metrics": ["11 issues reported", "3 high severity"],
+     "technologies": ["Burp Suite", "OWASP Top 10", "Python"]},
+    {"section": "project", "title": "Vulnerable Lab Builder", "start": "2023", "end": "2023",
+     "bullets": ["Built a set of 6 intentionally vulnerable web apps in Docker for practice",
+                 "Wrote step-by-step walkthroughs for each application"],
+     "technologies": ["Docker", "Python", "Flask"]},
+    {"section": "research", "title": "Disclosed an access-control flaw in an open-source web app", "date": "2024-03",
+     "bullets": ["Found a missing authorization check that exposed other users' records",
+                 "Reported it to the maintainers and coordinated a fix before publishing"],
+     "technologies": ["Burp Suite"]},
+    {"section": "certification", "title": "Example Web Security Practitioner", "issuer": "Example Training Org",
+     "date": "2023", "status": "earned"},
+    {"section": "skill", "name": "Web application security", "category": "Security"},
+    {"section": "skill", "name": "Burp Suite", "category": "Security"},
+    {"section": "skill", "name": "OWASP Top 10", "category": "Security"},
+    {"section": "skill", "name": "Python", "category": "Programming"},
+    {"section": "skill", "name": "Docker", "category": "Programming"},
+    {"section": "link", "label": "GitHub", "url": "https://github.com/alex-example"}
+  ]
+}

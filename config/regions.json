@@ -1,0 +1,44 @@
+{
+  "india": {
+    "label": "India",
+    "paper": "a4",
+    "photo": "optional",
+    "nationality": false,
+    "notes": "A4 paper. A photo is optional and off by default; many employers and portals do not need one. Leave out date of birth, marital status, religion, parents' names, ID numbers, and the full street address."
+  },
+  "us_canada": {
+    "label": "United States and Canada",
+    "paper": "letter",
+    "photo": "never",
+    "nationality": false,
+    "notes": "Letter paper. Photos are usually left off because employers avoid appearance-based bias, and many reject resumes that include one. Leave out date of birth, marital status, and similar personal details."
+  },
+  "uk": {
+    "label": "United Kingdom",
+    "paper": "a4",
+    "photo": "never",
+    "nationality": false,
+    "notes": "A4 paper. Photos are usually left off for the same bias reasons. Leave out date of birth, marital status, and similar personal details."
+  },
+  "eu": {
+    "label": "Europe (EU)",
+    "paper": "a4",
+    "photo": "optional",
+    "nationality": false,
+    "notes": "A4 paper. Practice differs by country: a photo is customary in some countries and discouraged in others. Off by default; turn it on only if the posting or local practice expects it."
+  },
+  "gulf": {
+    "label": "Gulf countries",
+    "paper": "a4",
+    "photo": "optional",
+    "nationality": true,
+    "notes": "A4 paper. A photo and the nationality line are often expected by employers in this region, but it varies. Photo is still off by default; turn it on if the posting or recruiter asks."
+  },
+  "other": {
+    "label": "Other or unknown",
+    "paper": "a4",
+    "photo": "optional",
+    "nationality": false,
+    "notes": "A4 paper. Photo off by default. Ask the user for the job's country to choose a better region."
+  }
+}

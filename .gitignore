@@ -1,0 +1,10 @@
+# local choices and temporary inputs; never shared
+config/data_location.txt
+scratch/*
+!scratch/.gitkeep
+__pycache__/
+*.pyc
+# safety net: user data must live outside this folder, but never commit it if it ends up here
+people/
+companies/
+resume-harness-data/
