@@ -28,6 +28,6 @@ Skill with evidence:
 {"section": "skill", "name": "SQL", "category": "Data", "level": "Intermediate", "evidence": ["exp-01"]}
 
 ## Rules
-- Bullets are the user's own facts in plain words. The writer will polish them later; do not polish now.
+- Bullets are the user's own facts, in their own words. The writer will polish them later; do not polish now.
 - Do not record opinions about the user ("strong communicator") unless the user states a concrete fact behind it.
 - If the user is unsure of a date or number, record nothing for it and tell them it can be added later.

@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Check (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the oldest version the harness supports, 3.13 the newest tested.
+        python-version: ["3.9", "3.13"]
+
+    steps:
+      - name: Get the files
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install the PDF tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            poppler-utils \
+            texlive-latex-base \
+            texlive-latex-recommended \
+            texlive-latex-extra \
+            texlive-fonts-recommended
+
+      - name: Check the documents, commands and saved files
+        run: python dev/verify_harness.py
+
+      - name: Run the self-test
+        run: python dev/selftest.py
+
+      - name: Confirm the harness leaves nothing behind
+        run: |
+          test -z "$(git status --porcelain)" || {
+            echo "The tests left tracked or untracked files behind:"
+            git status --porcelain
+            exit 1
+          }
+          test -z "$(find . \( -name '__pycache__' -o -name '*.pyc' \) -print -quit)" || {
+            echo "The tests left Python cache files behind."
+            exit 1
+          }
+          test -z "$(find scratch -mindepth 1 ! -name .gitkeep -print -quit)" || {
+            echo "The tests left scratch files behind."
+            exit 1
+          }
+          for dir in people companies resume-harness-data; do
+            if [ -e "$dir" ]; then
+              echo "The tests left a data folder: $dir"
+              exit 1
+            fi
+          done
+          if [ -e config/data_location.txt ]; then
+            echo "The tests left a local data-location setting."
+            exit 1
+          fi

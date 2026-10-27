@@ -20,6 +20,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import unicodedata
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -32,6 +33,19 @@ POINTER_FILE = CONFIG_DIR / "data_location.txt"
 MARKER_NAME = "resume-harness-data.json"
 DATA_FORMAT_VERSION = 1
 DEFAULT_DATA_DIRNAME = "resume-harness-data"
+
+
+def python_command() -> str:
+    """The Python command name that works on this machine: python, python3 or py.
+
+    Used when printing the command a reader should run, so that a machine without a
+    plain `python` does not turn every printed instruction into a failed command.
+    """
+    name = Path(sys.executable).name.lower()
+    for candidate in ("python3", "python", "py"):
+        if name.startswith(candidate):
+            return candidate
+    return "python"
 
 
 class RHError(Exception):
@@ -56,6 +70,34 @@ def today() -> str:
 
 def stamp() -> str:
     return dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def file_stamp(path: Optional[Path]) -> Optional[List[int]]:
+    """A cheap content-change marker for a file: (mtime in ns, byte size).
+
+    Build freshness compares these markers rather than timestamps with second
+    precision, so a save made in the same second still counts as a change.
+    """
+    if path is None:
+        return None
+    try:
+        stat = path.stat()
+        return [stat.st_mtime_ns, stat.st_size]
+    except OSError:
+        return None
+
+
+def iso_stamp(value: Any) -> Optional[float]:
+    """Turn a stored ISO timestamp into epoch seconds, or None when it is absent/bad."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        when = dt.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.astimezone()
+    return when.timestamp()
 
 
 def _ascii_lower(text: str) -> str:
@@ -119,6 +161,14 @@ def create_text(path: Path, text: str) -> Path:
     return path
 
 
+def write_text_lf(path: Path, text: str) -> Path:
+    """Replace a text file with LF line endings. Python 3.9-safe (Path.write_text has no newline)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+    return path
+
+
 def create_json(path: Path, obj: Any) -> Path:
     return create_text(path, _dump(obj))
 
@@ -139,7 +189,7 @@ def update_json(path: Path, obj: Any, history_dir: Path) -> None:
     if path.exists():
         archive_file(path, history_dir)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(_dump(obj), encoding="utf-8", newline="\n")
+    write_text_lf(tmp, _dump(obj))
     os.replace(tmp, path)
 
 
@@ -165,6 +215,16 @@ def latest_version(directory: Path, stem: str, ext: str) -> Optional[Tuple[int, 
     return existing[-1] if existing else None
 
 
+def report_fail_count(path: Path) -> Optional[int]:
+    """The number of FAIL findings in a truth/ATS/lint report, or None if it cannot be read."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    match = re.search(r"^Result:\s*(\d+)\s+FAIL\b", text, re.MULTILINE)
+    return int(match.group(1)) if match else None
+
+
 def save_versioned(directory: Path, stem: str, ext: str, text: str) -> Path:
     n = next_version(directory, stem, ext)
     return create_text(directory / f"{stem}.v{n}.{ext}", text)
@@ -179,7 +239,14 @@ def read_input(path_str: str) -> str:
     if not p.exists():
         raise RHError(f"Input file not found: {p}",
                       "Write the content to a file inside the harness 'scratch' folder first, then pass that path.")
-    return p.read_text(encoding="utf-8-sig")
+    try:
+        return p.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        raise RHError(f"Input file is not plain UTF-8 text: {p}",
+                      "Save it as a UTF-8 text file. A PDF, image, or Word file cannot be read this way.") from None
+    except OSError as exc:
+        raise RHError(f"Could not read input file: {p} ({exc})",
+                      "Check that the file exists and that you can read it, then retry.") from None
 
 
 def consume_scratch(path_str: str) -> None:
@@ -281,6 +348,9 @@ def ensure_root(create: bool = True) -> Path:
     if root == HARNESS_ROOT or _inside(root, HARNESS_ROOT):
         raise RHError(f"The data folder must be outside the harness folder: {root}",
                       "Run: python scripts/rh.py set-data-dir <folder outside the harness>")
+    if root.exists() and not root.is_dir():
+        raise RHError(f"The data folder path is a file, not a folder: {root}",
+                      "Choose a folder path with: python scripts/rh.py set-data-dir <folder>")
     marker = root / MARKER_NAME
     if marker.exists():
         return root
@@ -342,11 +412,11 @@ def empty_profile(slug: str) -> Dict[str, Any]:
 def create_person(root: Path, name: str, allow_duplicate: bool = False) -> Dict[str, Any]:
     name = name.strip()
     if not name:
-        raise RHError("Person name is empty.")
+        raise RHError("The person label is empty.", 'Use a short, non-private label such as "Me".')
     matches = [p for p in find_people(root, name) if norm_key(p["name"]) == norm_key(name)]
     if matches and not allow_duplicate:
         listing = ", ".join(f"{p['slug']} ({p['name']})" for p in matches)
-        raise RHError(f"A person with this name already exists: {listing}",
+        raise RHError(f"A person with this label already exists: {listing}",
                       "Ask the user: reuse the existing person, or is this a different person? "
                       "If different, re-run with --allow-duplicate.")
     base = slugify(name, 40)
@@ -367,19 +437,116 @@ def touch_person(root: Path, slug: str) -> None:
     d = person_dir(root, slug)
     person = read_json(d / "person.json")
     person["updated"] = now_iso()
-    (d / "person.json").write_text(_dump(person), encoding="utf-8", newline="\n")
+    write_text_lf(d / "person.json", _dump(person))
+
+
+def set_person_label(root: Path, slug: str, label: str) -> Dict[str, Any]:
+    """Change the display label only. The private contact name and folder id are not touched."""
+    label = label.strip()
+    if not label:
+        raise RHError("The label is empty.", 'Use a short, non-private label such as "Me".')
+    d = person_dir(root, slug)
+    person = read_json(d / "person.json")
+    person["name"] = label
+    person["updated"] = now_iso()
+    update_json(d / "person.json", person, d / "history")
+    return person
+
+
+def rename_person(root: Path, slug: str, label: str) -> Dict[str, Any]:
+    """Give a person saved under a real name a private folder id as well as a label.
+
+    The person folder is moved, so the old id disappears from paths and lists.
+    Every application and the profile are updated to the new id.
+    """
+    label = label.strip()
+    if not label:
+        raise RHError("The label is empty.", 'Use a short, non-private label such as "Me".')
+    old = person_dir(root, slug)
+    new_slug = slugify(label, 40)
+    if not new_slug:
+        raise RHError("That label cannot be used as a folder id.",
+                      'Use letters or numbers, for example: --label "Me"')
+    if new_slug == slug:
+        return set_person_label(root, slug, label)
+    new = _people_dir(root) / new_slug
+    if new.exists():
+        raise RHError(f"A person folder named '{new_slug}' already exists.",
+                      "Use a different label, or keep the current folder id.")
+    try:
+        old.rename(new)
+    except OSError:
+        raise RHError("The person folder could not be moved. Nothing was changed.",
+                      "Close any program using the data folder and try again.") from None
+    person = read_json(new / "person.json")
+    person["slug"] = new_slug
+    person["name"] = label
+    person["updated"] = now_iso()
+    update_json(new / "person.json", person, new / "history")
+    profile_path = new / "profile.json"
+    if profile_path.exists():
+        profile = read_json(profile_path)
+        if profile.get("person") != new_slug:
+            profile["person"] = new_slug
+            update_json(profile_path, profile, new / "history")
+    apps = new / "applications"
+    if apps.exists():
+        for app_file in sorted(apps.glob("*/app.json")):
+            app = read_json(app_file)
+            if app.get("person") != new_slug:
+                app["person"] = new_slug
+                app["updated"] = now_iso()
+                update_json(app_file, app, app_file.parent / "history")
+    return person
 
 
 # --------------------------------------------------------------------------
-# contact (private; only used at PDF build time)
+# contact (private; used locally at build and export time, never printed)
 # --------------------------------------------------------------------------
 
 CONTACT_FIELDS = ["name", "email", "phone", "location"]
+
+CONTACT_FORM_NAME = "contact-form.txt"
+
+CONTACT_FORM_HELP = """\
+# Private contact details. The assistant does not read this file.
+# Fill in what you want on the resume, save the file, and close it.
+# location: city and country only, no street address.
+# link: write it as   label | https://...   (at most 3; professional links only)
+# Leave a field empty to keep it unchanged. Delete a link line to remove that link.
+"""
 
 
 def load_contact(root: Path, slug: str) -> Dict[str, Any]:
     path = person_dir(root, slug) / "contact.json"
     return read_json(path) if path.exists() else {}
+
+
+def contact_form_path(root: Path, slug: str) -> Path:
+    return person_dir(root, slug) / CONTACT_FORM_NAME
+
+
+def write_contact_form(root: Path, slug: str) -> Path:
+    """Create (or keep) the private form the user edits. The agent never reads it."""
+    path = contact_form_path(root, slug)
+    if path.exists():
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        return path
+    contact = load_contact(root, slug)
+    lines = CONTACT_FORM_HELP.splitlines()
+    for key in CONTACT_FIELDS:
+        lines.append(f"{key}: {contact.get(key, '')}")
+    for link in contact.get("links", []):
+        lines.append(f"link: {link['label']} | {link['url']}")
+    write_text_lf(path, "\n".join(lines) + "\n")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return path
 
 
 def _host(url: str) -> str:
@@ -398,14 +565,14 @@ def check_link(label: str, url: str) -> None:
     conf = settings()
     host = _host(url)
     if not host or "." not in host:
-        raise RHError(f"'{url}' is not a valid web address.", "Use a full address such as https://www.linkedin.com/in/your-name")
+        raise RHError("That is not a valid web address.", "Use a full address such as https://www.linkedin.com/in/your-name")
     for domain in conf.get("blocked_link_domains", []):
         if host == domain or host.endswith("." + domain):
-            raise RHError(f"Social media links are not allowed on a resume ({label}: {host}).", LINK_HINT)
+            raise RHError(f"Social media links are not allowed on a resume (saved link: {host}).", LINK_HINT)
     words = set(re.split(r"[^a-z0-9]+", label.lower()))
     for word in conf.get("blocked_link_words", []):
         if word in words:
-            raise RHError(f"Social media links are not allowed on a resume (label '{label}').", LINK_HINT)
+            raise RHError("Social media links are not allowed on a resume (a link label uses a blocked word).", LINK_HINT)
 
 
 def validate_contact_links(contact: Dict[str, Any]) -> None:
@@ -414,9 +581,52 @@ def validate_contact_links(contact: Dict[str, Any]) -> None:
         check_link(link["label"], link["url"])
     limit = int(settings().get("max_links", 3))
     if len(links) > limit:
-        labels = ", ".join(x["label"] for x in links)
-        raise RHError(f"A resume may show at most {limit} links; this contact has {len(links)}: {labels}.",
-                      "Ask the user which to keep, then remove the others with: python scripts/rh.py contact set <person> --remove-link LABEL")
+        raise RHError(f"A resume may show at most {limit} links; this contact has {len(links)}.",
+                      "Ask the user which to keep, then open the contact form, delete the other link lines, "
+                      "and run: python scripts/rh.py contact import <person>")
+
+
+def parse_contact_form(text: str) -> Tuple[Dict[str, str], List[Tuple[str, str]]]:
+    """Read the private form. Errors never include a value or a URL."""
+    fields: Dict[str, str] = {}
+    links: List[Tuple[str, str]] = []
+    for number, raw in enumerate(text.lstrip("\ufeff").splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if ":" not in line:
+            raise RHError(f"Line {number} of the contact form is not written as 'key: value'.",
+                          "Use name:, email:, phone:, location:, or link: Label | https://...")
+        key, value = line.split(":", 1)
+        key = key.strip().lower()
+        value = value.strip()
+        if key == "link":
+            if "|" not in value:
+                raise RHError(f"Line {number}: a link must be written as Label | https://...")
+            label, url = (part.strip() for part in value.split("|", 1))
+            if not label or not url:
+                raise RHError(f"Line {number}: a link needs a label and a full web address.")
+            try:
+                check_link(label, url)
+            except RHError:
+                raise RHError(f"Line {number}: that link is not allowed on a resume.",
+                              "Use a professional link only: LinkedIn, GitHub, a portfolio, Behance or Dribbble, "
+                              "Google Scholar or ORCID. No social media.") from None
+            links.append((label, url))
+        elif key in CONTACT_FIELDS:
+            if value:
+                fields[key] = value
+        else:
+            raise RHError(f"Line {number}: unknown field '{key}'.",
+                          "Allowed fields: name, email, phone, location, link.")
+    limit = int(settings().get("max_links", 3))
+    if len(links) > limit:
+        raise RHError(f"The contact form has {len(links)} links; at most {limit} are allowed.",
+                      "Delete the extra link lines and import again.")
+    if fields.get("email") and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", fields["email"]):
+        raise RHError("The email in the contact form does not look valid.",
+                      "Fix the email line and import again.")
+    return fields, links
 
 
 def contact_warnings(contact: Dict[str, Any]) -> List[str]:
@@ -440,7 +650,7 @@ def set_contact(root: Path, slug: str, fields: Dict[str, str], links: List[Tuple
             raise RHError(f"Unknown contact field '{key}'.", "Allowed: " + ", ".join(CONTACT_FIELDS))
         value = (value or "").strip()
         if key == "email" and value and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", value):
-            raise RHError(f"'{value}' does not look like an email address.")
+            raise RHError("The email does not look valid.", "Fix the email value and run the command again.")
         if value:
             contact[key] = value
     current = list(contact.get("links", []))
@@ -466,6 +676,10 @@ def set_contact(root: Path, slug: str, fields: Dict[str, str], links: List[Tuple
         update_json(path, contact, d / "history")
     else:
         create_json(path, contact)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
     touch_person(root, slug)
     return contact, contact_warnings(contact)
 
@@ -481,6 +695,16 @@ PHOTO_GUIDE = [
     "No filters, no heavy editing, no sunglasses, no hat, no group photo, no selfie angle.",
     "Not a fashion, party, or social-media style photo. Not oversized: it is printed small (about 2.6 x 3.0 cm).",
     "A tight, natural crop. It does not need to look like an official ID or passport photo.",
+]
+
+PHOTO_HELP = [
+    "No suitable photo? Take one with a phone: stand facing a window, plain wall behind you, "
+    "head and shoulders, no filter, no sunglasses.",
+    "Want an editor to clean up a real photo? Use this prompt: \"Crop to head and shoulders, straighten, "
+    "replace the background with plain light grey, even the lighting, keep the face exactly as it is, "
+    "no beauty retouching, no filters, no watermark.\"",
+    "Do not generate or replace the face. A generated face is a misrepresentation and can be rejected. "
+    "A photo is optional.",
 ]
 
 
@@ -551,6 +775,10 @@ def photo_set(root: Path, slug: str, src: str) -> Tuple[Path, List[str]]:
     dest = d / f"photo.v{n}{'.jpg' if ext in ('.jpg', '.jpeg') else '.png'}"
     with open(dest, "xb") as handle:
         handle.write(source.read_bytes())
+    try:
+        os.chmod(dest, 0o600)
+    except OSError:
+        pass
     touch_person(root, slug)
     return dest, warnings
 
@@ -1020,12 +1248,20 @@ APP_TEXT_STAGES = {
     "resume-md": ("resume", "md"),
     "evidence-map": ("evidence-map", "md"),
     "review": ("review", "md"),
+    "cover-letter": ("cover-letter", "md"),
+    "cv-md": ("cv", "md"),
+    "apply-routes": ("apply-routes", "md"),
 }
 APP_READONLY_STAGES = {
     "tex": ("resume", "tex"),
     "truth-report": ("truth-report", "md"),
+    "lint-report": ("lint-report", "md"),
     "ats-report": ("ats-report", "md"),
 }
+
+# Settings that change the built files or the policy/ATS checks. The how-to-apply
+# choice does not: it only decides whether a later text file is written.
+APP_BUILD_SETTING_KEYS = ("region", "paper", "pages", "photo", "cover_letter", "cv")
 
 
 def _apps_dir(root: Path, person_slug: str) -> Path:
@@ -1083,8 +1319,15 @@ def create_app(root: Path, person_slug: str, company_slug: str, job_slug: str,
 def _write_app(d: Path, app: Dict[str, Any]) -> None:
     app["updated"] = now_iso()
     tmp = d / "app.json.tmp"
-    tmp.write_text(_dump(app), encoding="utf-8", newline="\n")
+    write_text_lf(tmp, _dump(app))
     os.replace(tmp, d / "app.json")
+
+
+# Extra choices the user makes when a build starts. They are stored with the
+# application, so a build keeps them even if the conversation is interrupted.
+APP_OPTION_KEYS = ("cover_letter", "apply_routes", "cv")
+APP_OPTION_LABELS = {"cover_letter": "Cover letter", "apply_routes": "How to apply", "cv": "CV version"}
+APP_MENU_KEYS = ("region", "pages", "photo", "cover_letter", "apply_routes", "cv")
 
 
 def app_settings(root: Path, person_slug: str, app_id: str) -> Dict[str, Any]:
@@ -1096,19 +1339,41 @@ def app_settings(root: Path, person_slug: str, app_id: str) -> Dict[str, Any]:
     region = cur.get("region", conf["default_region"])
     if region not in regions:
         region = conf["default_region"]
-    return {"region": region, "region_label": regions[region]["label"],
-            "paper": cur.get("paper") or regions[region]["paper"],
-            "pages": int(cur.get("pages", conf["default_pages"])),
-            "photo": bool(cur.get("photo", False)), "chosen": "region" in cur}
+    out = {"region": region, "region_label": regions[region]["label"],
+           "paper": cur.get("paper") or regions[region]["paper"],
+           "pages": int(cur.get("pages", conf["default_pages"])),
+           "photo": bool(cur.get("photo", False)), "chosen": "region" in cur,
+           "settings_updated_at": app.get("settings_updated_at"),
+           "menu_answered": bool(cur.get("menu_answered", False))
+                             and all(key in cur for key in APP_MENU_KEYS)}
+    for key in APP_OPTION_KEYS:
+        out[key] = bool(cur.get(key, False))
+    return out
 
 
 def app_settings_set(root: Path, person_slug: str, app_id: str, region: Optional[str] = None,
                      photo: Optional[bool] = None, pages: Optional[int] = None,
-                     paper: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
+                     paper: Optional[str] = None, force: bool = False,
+                     cover_letter: Optional[bool] = None, apply_routes: Optional[bool] = None,
+                     cv: Optional[bool] = None) -> Dict[str, Any]:
     d = app_dir(root, person_slug, app_id)
     app = read_json(d / "app.json")
     regions = load_regions()
+    conf = settings()
     cur = app.setdefault("settings", {})
+
+    def build_snapshot() -> Dict[str, Any]:
+        region_key = cur.get("region", conf["default_region"])
+        return {
+            "region": region_key,
+            "paper": cur.get("paper") or regions[region_key]["paper"],
+            "pages": int(cur.get("pages", conf["default_pages"])),
+            "photo": bool(cur.get("photo", False)),
+            "cover_letter": bool(cur.get("cover_letter", False)),
+            "cv": bool(cur.get("cv", False)),
+        }
+
+    before = build_snapshot()
     if region is not None:
         if region not in regions:
             raise RHError(f"Unknown region '{region}'.", "Regions: " + ", ".join(regions))
@@ -1133,6 +1398,24 @@ def app_settings_set(root: Path, person_slug: str, app_id: str, region: Optional
                           "Leave the photo off. If the user insists and the posting asks for one, repeat with --force.")
         if not latest_photo(root, person_slug):
             raise RHError("No photo is saved for this person.", "Save one first: python scripts/rh.py photo set <person> --file <image>")
+    changed = any(value is not None for value in
+                  (region, photo, pages, paper, cover_letter, apply_routes, cv))
+    for key, value in (("cover_letter", cover_letter), ("apply_routes", apply_routes), ("cv", cv)):
+        if value is not None:
+            cur[key] = bool(value)
+    if changed:
+        # The menu is complete only when every answer has been saved. A later
+        # change keeps it complete because the old answers remain in the record.
+        cur["menu_answered"] = all(key in cur for key in APP_MENU_KEYS)
+        # Only effective changes that affect a build or a policy/ATS check
+        # invalidate those reports. Changing "how to apply" alone does not
+        # affect either file, and explicitly saving an unchanged default is
+        # not a change.
+        after = build_snapshot()
+        if any(after[key] != before[key] for key in APP_BUILD_SETTING_KEYS):
+            # Microseconds matter here: a report written earlier in the same second
+            # must still be older than the settings change.
+            app["settings_updated_at"] = dt.datetime.now().astimezone().isoformat(timespec="microseconds")
     _write_app(d, app)
     return app_settings(root, person_slug, app_id)
 
@@ -1198,6 +1481,225 @@ def app_files(root: Path, person_slug: str, app_id: str) -> List[str]:
     return lines
 
 
+def _save_cmd(person_slug: str, app_id: str, stage: str, path: str) -> str:
+    return f"python scripts/rh.py app save {person_slug} {app_id} {stage} --file {path}"
+
+
+def app_progress(root: Path, person_slug: str, app_id: str) -> List[Dict[str, Any]]:
+    """The steps of one application, in order, each with whether it is done and its next command.
+
+    `wanted` marks a step that only happens when the start menu asked for it. Everything else is
+    part of a finished application. Used by `rh.py brief` to say where a run has got to.
+
+    This is also the context-rollover mechanism: after a new conversation, it reports the saved
+    state and the exact next command without asking the user to remember the stages.
+    """
+    d = app_dir(root, person_slug, app_id)
+    app = read_json(d / "app.json")
+    st = app_settings(root, person_slug, app_id)
+    settings_time = iso_stamp(st.get("settings_updated_at"))
+
+    def has(stage: str) -> bool:
+        return app_latest(root, person_slug, app_id, stage) is not None
+
+    def stamp(path: Optional[Path]) -> Optional[float]:
+        if path is None:
+            return None
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return None
+
+    def report_done(stage: str, inputs: List[Optional[Path]],
+                    not_before: Optional[float] = None) -> bool:
+        """A report counts only when it passed and is newer than every input it describes."""
+        report = app_latest(root, person_slug, app_id, stage)
+        if not report or report_fail_count(report[1]) != 0:
+            return False
+        report_time = stamp(report[1])
+        if report_time is None:
+            return False
+        if not_before is not None and report_time < not_before:
+            return False
+        for path in inputs:
+            input_time = stamp(path)
+            if input_time is None or input_time > report_time:
+                return False
+        return True
+
+    def build_files(version: int) -> bool:
+        return all((d / name).exists() for name in (
+            f"resume.v{version}.tex", f"resume.v{version}.docx", f"overleaf-resume.v{version}.zip"))
+
+    resume = app_latest(root, person_slug, app_id, "resume-md")
+    evidence = app_latest(root, person_slug, app_id, "evidence-map")
+    profile = profile_path(root, person_slug)
+    contact_path = person_dir(root, person_slug) / "contact.json"
+    contact_data = load_contact(root, person_slug)
+    analysis = analysis_latest(root, app["company"], app["job"])
+    cover = app_latest(root, person_slug, app_id, "cover-letter")
+    cv = app_latest(root, person_slug, app_id, "cv-md")
+    photo = latest_photo(root, person_slug) if st["photo"] else None
+
+    def build_done() -> bool:
+        build = app.get("build") or {}
+        version = build.get("version")
+        status = build.get("status")
+        if not isinstance(version, int) or version < 1:
+            # A legacy record without a version can still be proved by a PDF.
+            return latest_version(d, "resume", "pdf") is not None
+        if not build_files(version):
+            return False
+        inputs = build.get("inputs")
+        if isinstance(inputs, dict):
+            # New records carry the exact source versions and settings they used.
+            if not resume or inputs.get("resume_md") != resume[0]:
+                return False
+            snapshot = inputs.get("settings")
+            if not isinstance(snapshot, dict) or any(
+                    snapshot.get(key) != st.get(key) for key in APP_BUILD_SETTING_KEYS):
+                return False
+            if inputs.get("contact") != file_stamp(contact_path):
+                return False
+            if st["photo"] and (not photo or inputs.get("photo") != file_stamp(photo[1])):
+                return False
+            if st["cover_letter"] and (not cover or inputs.get("cover_letter") != cover[0]):
+                return False
+            if st["cv"] and (not cv or inputs.get("cv_md") != cv[0]):
+                return False
+        if status == "ok":
+            if not (d / f"resume.v{version}.pdf").exists():
+                return False
+            if st["cover_letter"] and not (d / f"cover-letter.v{version}.pdf").exists():
+                return False
+            if st["cv"] and not (d / f"cv.v{version}.pdf").exists():
+                return False
+            if st["photo"] and not (d / f"resume-photo.v{version}.pdf").exists():
+                return False
+            return True
+        if status == "tex-only":
+            if st["cover_letter"] and not (d / f"cover-letter.v{version}.tex").exists():
+                return False
+            if st["cv"] and not (d / f"cv.v{version}.tex").exists():
+                return False
+            if st["photo"] and not (d / f"resume-photo.v{version}.tex").exists():
+                return False
+            return True
+        if status == "no-engine":
+            # The recorded build is valid while the machine still has no engine. If one
+            # is installed later, the user should rebuild to get the PDF.
+            if any(shutil.which(name) for name in ("pdflatex", "tectonic")):
+                return False
+            if st["cover_letter"] and not (d / f"cover-letter.v{version}.tex").exists():
+                return False
+            if st["cv"] and not (d / f"cv.v{version}.tex").exists():
+                return False
+            if st["photo"] and not (d / f"resume-photo.v{version}.tex").exists():
+                return False
+            return True
+        if status is None:
+            # A record from an older release: a PDF is the only proof of a finished build.
+            if (d / f"resume.v{version}.pdf").exists():
+                return True
+            return not any(shutil.which(name) for name in ("pdflatex", "tectonic"))
+        return False
+
+    def export_done() -> bool:
+        if not build_done():
+            return False
+        exports = d / "exports"
+        if not exports.is_dir():
+            return False
+        folders = [p for p in exports.iterdir() if p.is_dir() and any(p.iterdir())]
+        if not folders:
+            return False
+        export_time = max((stamp(p) or 0.0) for p in folders)
+        built = [p for p in (latest_version(d, "resume", "pdf"),
+                             latest_version(d, "resume", "docx")) if p]
+        return bool(built) and all((stamp(p[1]) or 0.0) <= export_time for p in built)
+
+    def current_pdf() -> Optional[Path]:
+        """The PDF produced by the recorded build, never a PDF from an older build."""
+        build = app.get("build") or {}
+        version = build.get("version")
+        status = build.get("status")
+        if not isinstance(version, int) or version < 1:
+            return latest_version(d, "resume", "pdf")
+        if status not in (None, "ok"):
+            return None
+        path = d / f"resume.v{version}.pdf"
+        return path if path.exists() else None
+
+    pdf = current_pdf()
+    truth_inputs = [resume[1] if resume else None, evidence[1] if evidence else None, profile]
+    ats_inputs = [pdf, resume[1] if resume else None,
+                  evidence[1] if evidence else None, profile, contact_path]
+    if analysis:
+        ats_inputs.append(analysis[0])
+    if st["cover_letter"]:
+        ats_inputs.append(cover[1] if cover else None)
+    elif cover:
+        ats_inputs.append(cover[1])
+    if st["cv"]:
+        ats_inputs.append(cv[1] if cv else None)
+    elif cv:
+        ats_inputs.append(cv[1])
+    if st["photo"]:
+        ats_inputs.append(photo[1] if photo else None)
+
+    lint_inputs = [resume[1] if resume else None, profile, contact_path]
+    if cover:
+        lint_inputs.append(cover[1])
+    if cv:
+        lint_inputs.append(cv[1])
+    if st["photo"] and photo:
+        lint_inputs.append(photo[1])
+
+    build_ok = build_done()
+    ats_ok = build_ok and report_done("ats-report", ats_inputs, settings_time)
+    # `check` includes the policy and writing lint. A passing, current ATS report
+    # therefore also proves that lint passed; otherwise use the separate lint report.
+    lint_ok = report_done("lint-report", lint_inputs, settings_time) or ats_ok
+
+    review = app_latest(root, person_slug, app_id, "review")
+    review_time = stamp(review[1]) if review else None
+    build_time = stamp(pdf) if pdf else None
+    review_ok = bool(review and ats_ok and review_time is not None and build_time is not None
+                     and review_time >= build_time)
+
+    steps = [
+        ("Profile", True, sum(profile_counts(load_profile(root, person_slug)).values()) > 0,
+         f"python scripts/rh.py profile show {person_slug}"),
+        ("Contact details", True, bool(contact_data.get("name")),
+         f"python scripts/rh.py contact form {person_slug}"),
+        ("Company recon", True, bool(recon_list(root, app["company"])),
+         f"python scripts/rh.py recon latest {app['company']}"),
+        ("Job analysis", True, analysis is not None,
+         f"python scripts/rh.py job show {app['company']} {app['job']}"),
+        ("Start menu", True, bool(st["menu_answered"]),
+         f"python scripts/rh.py app settings {person_slug} {app_id}"),
+        ("Strategy", True, has("strategy"), _save_cmd(person_slug, app_id, "strategy", "scratch/strategy.md")),
+        ("Resume text", True, has("resume-md"), _save_cmd(person_slug, app_id, "resume-md", "scratch/resume.md")),
+        ("Evidence map", True, has("evidence-map"),
+         _save_cmd(person_slug, app_id, "evidence-map", "scratch/evidence-map.md")),
+        ("Truth check", True, report_done("truth-report", truth_inputs),
+         f"python scripts/rh.py truth {person_slug} {app_id}"),
+        ("Lint", True, lint_ok, f"python scripts/rh.py lint {person_slug} {app_id}"),
+        ("Cover letter", st["cover_letter"], has("cover-letter"),
+         _save_cmd(person_slug, app_id, "cover-letter", "scratch/cover-letter.md")),
+        ("Longer CV", st["cv"], has("cv-md"), _save_cmd(person_slug, app_id, "cv-md", "scratch/cv.md")),
+        ("Build", True, build_ok, f"python scripts/rh.py build {person_slug} {app_id}"),
+        ("ATS check", True, ats_ok, f"python scripts/rh.py check {person_slug} {app_id}"),
+        ("Review", True, review_ok, _save_cmd(person_slug, app_id, "review", "scratch/review.md")),
+        ("How to apply", st["apply_routes"], has("apply-routes"),
+         _save_cmd(person_slug, app_id, "apply-routes", "scratch/apply-routes.md")),
+        ("Export", True, export_done(),
+         f"python scripts/rh.py export {person_slug} {app_id}"),
+    ]
+    return [{"step": step, "wanted": wanted, "done": done, "next": nxt}
+            for step, wanted, done, nxt in steps]
+
+
 # --------------------------------------------------------------------------
 # index, backup, reset
 # --------------------------------------------------------------------------
@@ -1243,7 +1745,7 @@ def write_index(root: Path) -> Path:
               _md_row(["person", "application id", "company", "job", "status", "created", "updated", "latest pdf"]),
               _md_row(["---"] * 8)] + [_md_row(r) for r in apps_rows]
     index_path = root / "INDEX.md"
-    index_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    write_text_lf(index_path, "\n".join(lines) + "\n")
     with open(root / "applications.csv", "w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(["person", "application_id", "company", "job_title", "status", "created", "updated", "latest_pdf"])
@@ -1256,10 +1758,19 @@ def backup(root: Path, out: Optional[str] = None) -> Path:
     if target.exists():
         raise RHError(f"Backup file already exists: {target}")
     base = target.with_suffix("")
-    made = shutil.make_archive(str(base), "zip", root_dir=str(root))
-    final = Path(made)
-    if final != target:
-        os.replace(final, target)
+    try:
+        made = shutil.make_archive(str(base), "zip", root_dir=str(root))
+        final = Path(made)
+        if final != target:
+            os.replace(final, target)
+    except OSError as exc:
+        for stale in {base.with_name(base.name + ".zip"), target}:
+            try:
+                stale.unlink()
+            except OSError:
+                pass
+        raise RHError(f"Could not write the backup: {target} ({exc})",
+                      "Choose a folder that exists and that you can write to, then run backup again.") from None
     return target
 
 

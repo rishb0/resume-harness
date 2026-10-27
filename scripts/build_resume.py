@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Convert a resume Markdown file to LaTeX and (if a TeX engine exists) to PDF.
+"""Convert resume Markdown to LaTeX and (if a TeX engine exists) to PDF.
+
+The same converter builds the optional cover letter (a letter-shaped template
+that reuses the resume header) and the optional longer CV.
 
 Contact details are never written by the agent. The resume Markdown contains
 placeholders such as {{NAME}}; this script fills them from the person's
@@ -64,7 +67,8 @@ def fill_placeholders(text: str, contact: Dict[str, Any]) -> str:
                       "Allowed placeholders: {{NAME}} {{EMAIL}} {{PHONE}} {{LOCATION}} {{LINKS}} {{CONTACT}}")
     if missing:
         raise RHError("Contact data missing for: " + ", ".join(sorted(set(missing))),
-                      "Save it with: python scripts/rh.py contact set <person> --" + sorted(set(missing))[0] + " ...")
+                      "Open the private form: python scripts/rh.py contact form <person>, fill it in, then run: "
+                      "python scripts/rh.py contact import <person>")
     return out
 
 
@@ -72,7 +76,7 @@ def fill_placeholders(text: str, contact: Dict[str, Any]) -> str:
 # Markdown parsing (strict, small format; see .claude/skills/resume-writer/references/resume-md-format.md)
 # --------------------------------------------------------------------------
 
-def parse_resume_md(text: str) -> Dict[str, Any]:
+def parse_resume_md(text: str, require_sections: bool = True) -> Dict[str, Any]:
     doc: Dict[str, Any] = {"name": "", "headline": "", "sections": []}
     section: Optional[Dict[str, Any]] = None
     para: List[str] = []
@@ -134,8 +138,44 @@ def parse_resume_md(text: str) -> Dict[str, Any]:
     flush_para(); flush_bullets()
     if not doc["name"]:
         raise RHError("Resume Markdown has no '# Name' line.", "The first line must be: # {{NAME}}")
-    if not doc["sections"]:
+    if require_sections and not doc["sections"]:
         raise RHError("Resume Markdown has no '## Section' headings.")
+    return doc
+
+
+def parse_letter_md(filled: str) -> Dict[str, Any]:
+    """A cover letter: the same header lines as the resume, then plain paragraphs."""
+    doc: Dict[str, Any] = {"name": "", "headline": "", "paragraphs": []}
+    buf: List[str] = []
+
+    def flush() -> None:
+        if buf:
+            doc["paragraphs"].append(" ".join(buf))
+            buf.clear()
+
+    for raw in filled.splitlines():
+        line = raw.strip()
+        if line.startswith("# ") and not doc["name"]:
+            doc["name"] = line[2:].strip()
+            continue
+        if CONTACT_ONLY_RX.match(line):
+            continue
+        if not doc["headline"] and line.lower().startswith("headline:"):
+            doc["headline"] = line.split(":", 1)[1].strip()
+            continue
+        if not line:
+            flush()
+            continue
+        buf.append(line)
+    flush()
+    if not doc["name"]:
+        raise RHError("The cover letter has no '# Name' line.", "The first line must be: # {{NAME}}")
+    if not doc["headline"]:
+        raise RHError("The cover letter has no 'Headline:' line (the designation).",
+                      "Header order: name, designation, contact. Add 'Headline: <designation>' under '# {{NAME}}'.")
+    if not doc["paragraphs"]:
+        raise RHError("The cover letter has no text under the header.",
+                      "Write three or four short paragraphs; see .claude/skills/resume-writer/references/cover-letter.md")
     return doc
 
 
@@ -299,6 +339,33 @@ def build_latex(md_text: str, contact: Dict[str, Any], paper: str, source_name: 
     return tex, warnings, doc
 
 
+def render_letter_body(doc: Dict[str, Any], warnings: List[str]) -> str:
+    return "\n".join(inline(p, warnings) + r"\par" for p in doc["paragraphs"])
+
+
+def build_letter_latex(md_text: str, contact: Dict[str, Any], paper: str, source_name: str,
+                       preset: Optional[Dict[str, str]] = None,
+                       photo_file: Optional[str] = None) -> Tuple[str, List[str], Dict[str, Any]]:
+    """The cover letter uses the same header as the resume, so the two documents match."""
+    warnings: List[str] = []
+    preset = preset or rhlib.settings()["autofit_presets"][2]
+    doc = parse_letter_md(fill_placeholders(md_text, contact))
+    template = (TEMPLATE_DIR / "cover-letter" / "template.tex").read_text(encoding="utf-8")
+    pdf_name = re.sub(r"[^A-Za-z0-9 ]", "", doc["name"]) or "Cover letter"
+    tex = (template.replace("%%SOURCE%%", source_name)
+           .replace("%%FONTSIZE%%", preset["font"])
+           .replace("%%MARGIN_H%%", preset["margin_h"])
+           .replace("%%MARGIN_V%%", preset["margin_v"])
+           .replace("%%LINESPREAD%%", preset["linespread"])
+           .replace("%%PARASKIP%%", preset["itemsep"])
+           .replace("%%PAPER%%", "a4paper" if paper == "a4" else "letterpaper")
+           .replace("%%PDF_TITLE%%", pdf_name + " Cover Letter")
+           .replace("%%PDF_AUTHOR%%", pdf_name)
+           .replace("%%HEADER%%", render_header(doc, contact, warnings))
+           .replace("%%BODY%%", render_letter_body(doc, warnings)))
+    return tex, warnings, doc
+
+
 # --------------------------------------------------------------------------
 # compile
 # --------------------------------------------------------------------------
@@ -374,12 +441,14 @@ def page_count(pdf_path: Path) -> Optional[int]:
 
 def autofit(md_text: str, contact: Dict[str, Any], paper: str, source_name: str, target_pages: int,
             start_index: int = 0, photo_file: Optional[str] = None,
-            photo_path: Optional[Path] = None) -> Dict[str, Any]:
+            photo_path: Optional[Path] = None,
+            builder: Optional[Any] = None) -> Dict[str, Any]:
     """Pick the roomiest layout preset that fits the page target. Returns tex, pdf, pages, fill, preset."""
     presets = rhlib.settings()["autofit_presets"]
+    build_one = builder or build_latex
     best: Optional[Dict[str, Any]] = None
     for i in range(start_index, len(presets)):
-        tex, warnings, doc = build_latex(md_text, contact, paper, source_name, presets[i], photo_file)
+        tex, warnings, doc = build_one(md_text, contact, paper, source_name, presets[i], photo_file)
         res = compile_tex(tex, photo_path, photo_file, passes=1)
         if res["pdf"] is None:
             res.update(tex=tex, warnings=warnings, doc=doc, preset=presets[i]["name"], index=i, fits=False)
@@ -406,10 +475,72 @@ def _next_k(d: Path, pairs: List[Tuple[str, str]]) -> int:
     return max(rhlib.next_version(d, stem, ext) for stem, ext in pairs)
 
 
+def build_cover_letter(d: Path, md_text: str, source_name: str, contact: Dict[str, Any], paper: str,
+                       k: int, compile_it: bool) -> Dict[str, Any]:
+    """Letter PDF from the saved cover letter. One page is the target."""
+    fit: Dict[str, Any]
+    if compile_it:
+        fit = autofit(md_text, contact, paper, source_name, 1, builder=build_letter_latex)
+    else:
+        preset = rhlib.settings()["autofit_presets"][2]
+        tex, warnings, _ = build_letter_latex(md_text, contact, paper, source_name, preset)
+        fit = {"tex": tex, "warnings": warnings, "pdf": None, "pages": None, "info": "skipped"}
+    res: Dict[str, Any] = {"tex": rhlib.create_text(d / f"cover-letter.v{k}.tex", fit["tex"]),
+                           "pdf": None, "pages": None, "warnings": list(fit["warnings"]),
+                           "log": fit.get("info", "")}
+    if fit.get("pdf"):
+        path = d / f"cover-letter.v{k}.pdf"
+        with open(path, "xb") as handle:
+            handle.write(fit["pdf"])
+        res.update(pdf=path, pages=fit["pages"])
+        if (fit["pages"] or 0) > 1:
+            res["warnings"].append(f"The cover letter runs to {fit['pages']} pages. A cover letter should fit "
+                                   "on one page; cut the weakest sentences.")
+    return res
+
+
+def build_cv(d: Path, md_text: str, source_name: str, contact: Dict[str, Any], paper: str,
+             target_pages: int, k: int, compile_it: bool) -> Dict[str, Any]:
+    """A longer CV: the same content format as the resume, with room for more of the same true facts."""
+    import docx_writer
+    fit: Dict[str, Any]
+    if compile_it:
+        fit = autofit(md_text, contact, paper, source_name, target_pages)
+    else:
+        preset = rhlib.settings()["autofit_presets"][2]
+        tex, warnings, doc = build_latex(md_text, contact, paper, source_name, preset)
+        fit = {"tex": tex, "warnings": warnings, "doc": doc, "pdf": None, "pages": None, "info": "skipped"}
+    tex_path = rhlib.create_text(d / f"cv.v{k}.tex", fit["tex"])
+    zip_path = d / f"overleaf-cv.v{k}.zip"
+    with zipfile.ZipFile(zip_path, "x", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("main.tex", fit["tex"])
+    docx_path = d / f"cv.v{k}.docx"
+    with open(docx_path, "xb") as handle:
+        handle.write(docx_writer.build_docx(fit["doc"], contact, paper))
+    res: Dict[str, Any] = {"tex": tex_path, "zip": zip_path, "docx": docx_path, "pdf": None, "pages": None,
+                           "warnings": list(fit["warnings"]), "log": fit.get("info", "")}
+    if fit.get("pdf"):
+        pdf_path = d / f"cv.v{k}.pdf"
+        with open(pdf_path, "xb") as handle:
+            handle.write(fit["pdf"])
+        res.update(pdf=pdf_path, pages=fit["pages"])
+        if fit.get("fits") is False:
+            res["warnings"].append(f"The CV does not fit {target_pages} pages even with the tightest layout. "
+                                   "Cut the weakest items.")
+    return res
+
+
 def build(root: Path, person: str, app_id: str, paper: Optional[str] = None,
           no_compile: bool = False, pages: Optional[int] = None) -> Dict[str, Any]:
     import docx_writer
     d = rhlib.app_dir(root, person, app_id)
+    st = rhlib.app_settings(root, person, app_id)
+    if not st["menu_answered"]:
+        raise RHError(
+            "The start menu is not saved for this application.",
+            "Ask all six questions first, then save every answer: python scripts/rh.py app settings "
+            "<person> <app> --region <key> --pages 1|2|3 --photo on|off --cover-letter on|off "
+            "--apply-routes on|off --cv on|off")
     latest_md = rhlib.app_latest(root, person, app_id, "resume-md")
     if not latest_md:
         raise RHError("This application has no resume Markdown yet.",
@@ -417,9 +548,9 @@ def build(root: Path, person: str, app_id: str, paper: Optional[str] = None,
     contact = rhlib.load_contact(root, person)
     if not contact.get("name"):
         raise RHError("No contact name saved for this person.",
-                      "Save contact details first: python scripts/rh.py contact set <person> --name ... --email ... --phone ...")
+                      "Open the private form: python scripts/rh.py contact form <person>, fill it in, then run: "
+                      "python scripts/rh.py contact import <person>")
     rhlib.validate_contact_links(contact)
-    st = rhlib.app_settings(root, person, app_id)
     paper = paper or st["paper"]
     if paper not in ("a4", "letter"):
         raise RHError("Paper must be 'a4' or 'letter'.")
@@ -432,10 +563,13 @@ def build(root: Path, person: str, app_id: str, paper: Optional[str] = None,
     photo_file = ("photo" + photo[1].suffix) if photo else None
 
     stems = [("resume", "tex"), ("resume", "pdf"), ("resume", "docx"), ("overleaf-resume", "zip"),
-             ("resume-photo", "tex"), ("resume-photo", "pdf"), ("overleaf-resume-photo", "zip")]
+             ("resume-photo", "tex"), ("resume-photo", "pdf"), ("overleaf-resume-photo", "zip"),
+             ("cover-letter", "tex"), ("cover-letter", "pdf"),
+             ("cv", "tex"), ("cv", "pdf"), ("cv", "docx"), ("overleaf-cv", "zip")]
     k = _next_k(d, stems)
     result: Dict[str, Any] = {"tex": None, "zip": None, "pdf": None, "docx": None, "photo_pdf": None, "photo_tex": None,
-                              "photo_zip": None, "pages": None, "fill": None, "preset": None, "fits": None,
+                              "photo_zip": None, "cover_letter": None, "cv": None, "pages": None, "fill": None,
+                              "preset": None, "fits": None,
                               "warnings": [], "status": "tex-only", "log": "", "version": k, "paper": paper,
                               "target_pages": target_pages}
 
@@ -496,7 +630,44 @@ def build(root: Path, person: str, app_id: str, paper: Optional[str] = None,
             if (pfit["pages"] or 0) > target_pages:
                 result["warnings"].append(f"The photo version has {pfit['pages']} pages (target {target_pages}); shorten the content.")
 
+    # ---- the two extra documents the start menu can ask for ---------------------------
+    if result["status"] in ("ok", "no-engine", "tex-only"):
+        compile_it = not no_compile and find_engine() is not None
+        letter = rhlib.app_latest(root, person, app_id, "cover-letter")
+        if st["cover_letter"]:
+            if not letter:
+                result["warnings"].append("The cover letter is switched on but none is saved. Save one: "
+                                          "python scripts/rh.py app save <person> <app> cover-letter --file <file>")
+            else:
+                result["cover_letter"] = build_cover_letter(d, letter[1].read_text(encoding="utf-8"),
+                                                            letter[1].name, contact, paper, k, compile_it)
+                result["warnings"].extend(result["cover_letter"]["warnings"])
+        longest_cv = rhlib.app_latest(root, person, app_id, "cv-md")
+        if st["cv"]:
+            if not longest_cv:
+                result["warnings"].append("The longer CV is switched on but none is saved. Save one: "
+                                          "python scripts/rh.py app save <person> <app> cv-md --file <file>")
+            else:
+                # A CV may run longer than the resume, which is usually capped at one page.
+                result["cv"] = build_cv(d, longest_cv[1].read_text(encoding="utf-8"), longest_cv[1].name,
+                                        contact, paper, max(2, target_pages), k, compile_it)
+                result["warnings"].extend(result["cv"]["warnings"])
+
+    cover_now = rhlib.app_latest(root, person, app_id, "cover-letter")
+    cv_now = rhlib.app_latest(root, person, app_id, "cv-md")
+    inputs = {
+        "resume_md": latest_md[0],
+        "cover_letter": cover_now[0] if cover_now else None,
+        "cv_md": cv_now[0] if cv_now else None,
+        "photo": rhlib.file_stamp(photo[1]) if photo else None,
+        "contact": rhlib.file_stamp(rhlib.person_dir(root, person) / "contact.json"),
+        # The menu snapshot is what makes an answer change stale. The effective
+        # paper/pages above may be one-off command-line overrides.
+        "settings": {key: st[key] for key in rhlib.APP_BUILD_SETTING_KEYS},
+    }
     rhlib.app_record_build(root, person, app_id, {
-        "version": k, "preset": result["preset"], "pages": result["pages"], "fill": result["fill"],
-        "target_pages": target_pages, "paper": paper, "photo": bool(photo), "at": rhlib.now_iso()})
+        "version": k, "status": result["status"], "preset": result["preset"], "pages": result["pages"],
+        "fill": result["fill"], "target_pages": target_pages, "paper": paper, "photo": bool(photo),
+        "cover_letter": bool(result["cover_letter"]), "cv": bool(result["cv"]), "inputs": inputs,
+        "at": rhlib.now_iso()})
     return result

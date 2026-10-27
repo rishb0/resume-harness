@@ -1,302 +1,196 @@
 # Resume Harness
 
-Tell your AI coding agent, in plain English, to make your resume for a job. It builds an ATS-safe resume from your own saved facts, checks it, and gives you a PDF and a Word file.
+**A job-specific resume, built by talking to your AI agent.**
 
-Version 1.2.0 · GPL-3.0 · open source · works with OpenCode and Claude Code
+Paste a job advert. The agent asks about your background, writes only from facts you confirm, checks the result, and gives you a PDF and a Word file.
 
-<!--
-DEMO: add after recording (see docs/images/README.md). Remove these comment markers when the file exists.
-![Making a resume by talking to the agent](docs/images/demo.gif)
--->
+**Works with any agent that can open a folder, read files, and run commands.** [OpenCode](https://opencode.ai) is recommended and is the agent this project was built and tested on. [Claude Code](https://code.claude.com/) is also supported.
 
-## What it does
-- **You save your real facts once.** Education, jobs, projects, skills, contact details.
-- **For each job, you paste the job description.** The agent researches the company, compares the job with your facts, and proposes a plan: what to show and in what order.
-- **You approve the plan.** Then it writes the resume using only your facts, checks it, and builds the files.
-- **You get**: an ATS-safe PDF, a Word file (DOCX), LaTeX, an Overleaf-ready zip, and a report that shows which job keywords your record supports and which it does not.
+> **Why OpenCode?** It provides access to **OpenCode Zen**, its built-in model provider with free models. That makes it the simplest no-cost way to start. Free-model availability and sign-in rules can change; check [OpenCode Zen](https://opencode.ai/zen).
 
-Why it exists: AI resume tools often invent details to fill gaps, and you repeat the same work for every application. Here, every claim must trace back to a fact you saved. Anything unsupported fails a check.
+Version 1.3.0 · GPL-3.0 · Python 3.9+
+
+## What it is
+
+Resume Harness is a local toolkit, not a website. It is a folder of instructions and small Python programs. Your agent reads the instructions and runs the programs on your computer.
+
+Your agent makes the writing decisions. The programs save your facts, keep every version, check the resume, and build the files.
+
+The harness itself needs no account, server, or subscription. Your agent may need an account or model access.
+
+## Who it is for
+
+For job seekers who want a tailored resume and are comfortable using a coding agent. You do not need to edit code. You do need an agent that can work in a folder and run commands.
+
+A chat-only assistant cannot run the local scripts.
+
+## What you need
+
+| Need | Required? | Why it matters |
+| --- | --- | --- |
+| An AI coding agent | Yes | It reads the instructions, asks questions, and runs the scripts |
+| Python 3.9 or newer | Yes | Runs the harness programs |
+| Internet access | For setup and cloud models | Downloads the harness and reaches your model provider |
+| A PDF engine | For PDF output | Converts the resume layout into a PDF. Examples: TeX Live, MiKTeX, Tectonic |
+| A PDF text tool | For the ATS check | Reads the finished PDF. Examples: `pdftotext` from Poppler, or Python `pypdf` |
+
+Without a PDF engine you still get the Word file and the LaTeX source, but no PDF. Without a PDF text tool, the ATS check cannot read the PDF.
+
+Git is optional. A GitHub account is not required.
 
 ## Quick start
-You need three things: Python, an AI coding agent, and (optionally) a PDF engine.
 
-**1. Install Python 3.9 or newer.** Check what you have:
+### 1. Install an agent
 
-```bash
-python --version
+Use [OpenCode](https://opencode.ai) (recommended) or [Claude Code](https://code.claude.com/).
+
+If you already have one, skip this step.
+
+For every other agent, see [docs/AGENT-INSTALL.md](docs/AGENT-INSTALL.md). The harness does not install the agent for you.
+
+### 2. Open the agent in an empty folder
+
+Create a folder such as `~/tools`, then start the agent from inside it. The agent must be able to read and write files and run commands there.
+
+### 3. Paste the setup prompt
+
+```text
+Set up the Resume Harness on this computer. Download https://github.com/rishb0/resume-harness into a new folder, read docs/INSTALL.md inside it, and follow it. Tell me when it is ready.
 ```
 
-If that says "command not found", try `python3 --version` and use `python3` wherever this guide says `python`.
+### 4. Reopen inside the new folder
 
-**2. Install an AI coding agent.**
-- **OpenCode** is an open-source terminal agent. It can work with several free models. Install steps: https://opencode.ai/docs
-- **Claude Code** is Anthropic's terminal agent. It needs a Claude plan or API access. Install steps: https://docs.claude.com
-- Check each tool's website for current install steps and prices.
-- Bigger models follow the steps more reliably. Very small free models can skip steps.
+Close the agent. Start it again from inside `resume-harness`.
 
-**3. Download this harness.** Use the green **Code** button on GitHub, then **Download ZIP** and unzip it. Or:
+This lets it find `AGENTS.md` and the workflow instructions.
 
-```bash
-git clone https://github.com/rishb0/resume-harness.git
+> **Do not run `/init`.** It is for creating or updating `AGENTS.md`, and the harness already includes a complete one. If you run it anyway, review the changes and undo anything that removes the harness rules.
+
+### 5. Check the setup
+
+Ask:
+
+```text
+Run the setup check and explain what is missing.
 ```
 
-**4. Check your computer.** Open a terminal in the harness folder and run:
+You can also run the check yourself:
 
 ```bash
 python scripts/rh.py doctor
 ```
 
-It changes nothing. It tells you in plain words what is ready and what to install. PDF output is optional: without it you still get the Word file and the Overleaf zip.
+Use `python3` or `py` if `python` is not found. `doctor` changes nothing; it only reports.
 
-**5. Open the folder in your agent.**
-
-```bash
-cd resume-harness
-```
-
-```bash
-opencode
-```
-
-For Claude Code, run `claude` instead of `opencode`. In OpenCode, press `Tab` until the screen says **Build** (Plan mode cannot change files).
-
-**6. Send this first message** and paste your job description where shown:
-
-```text
-Read AGENTS.md and follow it. Make my resume for this job: <paste the job description here>
-```
-
-That is all. The agent now asks you questions one at a time.
+That is the installation. The agent can run every command for you.
 
 ## How to use it
-You never need to learn commands. Write what you want in plain English.
 
-**The first time**, the agent asks for:
-- your name and contact details (it keeps them out of the drafts and fills them in only when it builds the file)
-- your education, jobs, projects, certifications, and skills, one topic at a time
-- the company name and the country of the job
-- whether you want a photo version (only offered where a photo is normal)
-- the length you want
-
-It saves every answer. **Next time it will not ask again.**
-
-**Then it shows you a plan and waits.** Reply `approved`, or tell it what to change.
-
-**For the next job**, just say:
+Start the agent inside `resume-harness` and talk normally. For a new resume, say:
 
 ```text
-Make my resume for this other job: <paste the job description here>
+Read AGENTS.md and follow it. Make my resume for this job:
 ```
 
-**Other things you can say:**
-- `Show me what you have saved.`
-- `Update my profile: I finished a new course.`
-- `Make my resume for the Data Analyst job at Example Company.` (it will ask for the job description)
-- `Make a version with a photo.` (only where the country allows it)
-- `Make it two pages.`
-- `Back up my data.`
-- `Delete all my data.` (it asks you to type a confirmation first)
-- `Make a resume for my friend Priya.` (each person is saved separately)
+Then paste the job advert underneath. A bare job advert is also treated as a resume request.
 
-If the agent does not seem to know about this harness, start your first message with `Read AGENTS.md and follow it.`
+| Goal | What to say |
+| --- | --- |
+| Start a resume | `Read AGENTS.md and follow it. Make my resume for this job:` then the advert |
+| Start your profile only | `Read AGENTS.md and follow it. Onboard me.` |
+| Start the next job | The same resume prompt, with the new advert |
+| Continue where you stopped | `Where did we get to?` |
+| Add or correct profile facts | `Add this to my profile:` or `Correct this in my profile:` then the details |
+| Change contact details | `Change my contact details.` |
+| Change one resume | `Change the summary on my <company> resume to:` then the new text |
+| Mark it applied | `Mark this application as applied.` |
+| See where your data is | `Where is my data?` |
+| Back up your data | `Back up my data.` |
+| Move your data | `Move my data to this folder: <path>` |
+| Delete everything | `Delete all my data.` |
+| Check for an update | `Is there a newer version?` |
 
-## What happens behind the scenes
-1. **Your profile**: your facts are saved once and reused for every job.
-2. **Company research**: a short, sourced brief from public pages. If the company is already saved and recent, it is reused.
-3. **Job analysis**: must-haves, nice-to-haves, and the exact keywords. The same job text pasted twice is recognised and reused.
-4. **Plan** (you approve): what to show, in what order, and which job requirements your record does not cover.
-5. **Writing**: the resume text plus a map from every bullet to the fact behind it.
-6. **Checks**: the truth check, the resume rules, and a writing check.
-7. **Build**: PDF, Word file, LaTeX, Overleaf zip. The layout is fitted to your page target.
-8. **ATS check and review**: the PDF text is read the way a job portal reads it, and the result is reviewed twice (once as a recruiter, once as a sceptical manager).
-9. **Export**: files named `FirstName_LastName_Resume.pdf` and `.docx`, ready to upload.
+For every task and every copy-paste prompt, see [docs/USAGE.md](docs/USAGE.md).
 
-**You stay in control:**
-- Nothing is overwritten. Every save is a new version (`v1`, `v2`, ...).
-- The agent asks before it reuses or replaces anything, and it stops for your approval of the plan.
-- Deleting data needs a phrase that you type yourself.
+## What happens
 
-## What it can and cannot do
-**Can do** (the last column says how each item was verified):
+1. **Profile.** If you are new, the agent asks about your work history, education, skills, and projects, one question at a time.
+2. **Research.** It reads the job advert and looks up the company from public pages. It never logs in anywhere.
+3. **Choices.** It asks a short setup menu: country, photo, page length, cover letter, how to apply, longer CV, and anything to leave out.
+4. **Plan.** It shows the sections and order it intends to use, saves the plan, and **stops for your approval**. No resume text is written before you approve.
+5. **Writing.** It writes the resume and an evidence map showing where each bullet came from. Then it runs truth, policy, and writing checks.
+6. **Build.** It creates the PDF, Word file, LaTeX source, and optional cover letter, longer CV, or photo version.
+7. **Check and export.** It checks the PDF the way an applicant tracking system would, reviews it once more, and puts the finished files in one folder.
 
-| Area | What it does | Verified by |
-| --- | --- | --- |
-| Reuse | Saves a profile once and reuses it for every job | Automated test |
-| Many people and jobs | Keeps people, companies, jobs, and applications without duplicates; two people can share one saved company and job | Automated test |
-| No overwriting | Every save is a new version; edited profiles are archived | Automated test |
-| Company research | Writes a short, sourced brief from public pages | Agent-dependent; needs web access in the agent |
-| Job analysis | Extracts must-haves, nice-to-haves, and exact keywords | Agent-dependent; the saved format is tested |
-| Plan | Gap analysis, evidence scoring, section order, then stops for your approval | Agent-dependent; the stop is an instruction |
-| Truth check | Fails bullets with no evidence line, skills not in the profile, and numbers not in the cited evidence | Automated test |
-| Resume rules | Header order, professional links only (max 3), no personal data that does not belong, region rules, optional photo | Automated test |
-| Writing check | Filler words, pronouns, repeated openers, bullet length, tense, date order, employment gaps | Automated test |
-| Build | Auto-fitted PDF, Word file, LaTeX, Overleaf zip, optional photo PDF | Automated test (Linux) |
-| ATS check | Reads the PDF text the way a parser would; checks reading order, headings, keywords | Automated test (Linux) |
-| Export and data | Employer-ready file names; backup; delete one person; full reset | Automated test |
+## What you get
 
-**Cannot do:**
-- **Guarantee interviews or an ATS pass.** There is no official ATS score. The checks cover parseability, relevance, and honesty of the content.
-- **Prove your facts are true.** It catches claims your saved facts do not support. It cannot catch a false fact, or a reworded sentence that changes the meaning.
-- **Apply to jobs, fill in job portals, or send anything.**
-- **Write cover letters, optimise a LinkedIn profile, or prepare interviews.**
-- **Run without a terminal and an AI coding agent.** There is no website or graphical interface.
-- **Offer many designs.** There is one single-column ATS template; no multi-column or creative layouts.
-- **Typeset non-Latin scripts in the PDF.** The Word file keeps them.
-- **Read behind logins or collect LinkedIn data.** That is a rule, not a gap.
-- **Work on Windows or macOS with a tested record.** Only Linux was tested.
+The files are named after you:
 
-**Partly or untested:**
-- Importing an existing CV depends on what your agent can read.
-- The Word file was checked with python-docx and LibreOffice, not Microsoft Word.
-- Output quality depends on the model. Free models can lose track of long steps.
+| File | Use it for |
+| --- | --- |
+| `YourName_Resume.pdf` | Job websites and application forms. This is the main file to send. |
+| `YourName_Resume.docx` | The same resume in Word, for places that ask for Word. |
+| `YourName_Cover-Letter.pdf` | Only if you asked for a cover letter. |
+| `YourName_CV.pdf` | Only if you asked for a longer CV. |
+| `YourName_Resume_Photo.pdf` | Only if you asked for a photo version, for countries where that is normal. |
 
-## Resume rules
-The harness enforces these. You do not run anything; the agent applies them.
-- **Header order**: name, then designation, then contact. The designation is your real title or the target role worded honestly.
-- **Links**: professional only, at most 3 (LinkedIn, plus GitHub or a portfolio for technical work, and similar). Instagram, WhatsApp, Twitter or X, Facebook, and other social media are refused.
-- **Personal data**: no date of birth, marital status, religion, gender, parents' names, ID numbers, or full address. Nationality only where the region allows it.
-- **Regions**: India, US and Canada, UK, EU, Gulf, other. The job's country sets the paper size and the photo and nationality rules.
-- **Photo**: optional and off by default; not offered for the US, Canada, or the UK. The ATS PDF never has a photo. If you want one, a separate photo PDF is made for email or print. The standard is a recent, plain, head-and-shoulders photo printed small. It is a regional convention only; the harness never judges appearance.
-- **Writing check** (warnings): filler words, first-person pronouns, repeated opening verbs, long or short bullets, tense, date style and order, employment gaps.
-- **Layout**: the builder tries layout presets and keeps the roomiest one that fits your page target. A one-page resume that fills under about 60% of the page is flagged as sparse.
+The folder also contains a `.tex` file and an Overleaf zip. LaTeX is the typesetting format used for the PDF layout. Overleaf is a browser-based LaTeX editor. Use these only if you want to change the layout by hand.
 
-Full text: `.claude/skills/resume-writer/references/resume-policy.md`.
+## Accuracy and privacy
+
+**Every resume bullet is checked.** Each bullet must point to a fact in your profile. The truth check rejects unsupported bullets and numbers. If a fact is missing, the agent asks you or leaves it out. Cover letters and longer CVs get the policy and writing checks; the strict evidence map applies to the resume.
+
+**Contact details stay local.** You type your name, phone, email, and links into a private form on your computer. The agent runs the command that opens the form, is instructed not to read the saved file, and the PDF is built locally. This is a strong policy, not a technical lock; use an agent and model you trust.
+
+**Your work history is part of the conversation.** The harness has no server and uploads nothing, but your agent may send the conversation to its model provider. If you need everything to stay on your computer, use a local model.
+
+**It will not:**
+
+- invent experience, dates, degrees, certifications, or numbers;
+- add a photo, date of birth, marital status, religion, or social media unless the country rules allow it;
+- apply to jobs or fill in application forms;
+- promise an ATS score or an interview.
+
+ATS means **applicant tracking system**: software some employers use to read and filter applications.
 
 ## Your data
-- All saved data lives in a separate folder on your computer, never inside the harness folder. Ask the agent `Where is my data saved?` or run `python scripts/rh.py where`.
-- Default location: a folder named `resume-harness-data` in your home folder. To use another folder, run `python scripts/rh.py set-data-dir /path/to/folder` (it must be outside the harness folder). The environment variable `RESUME_HARNESS_DATA` also works.
-- The folder has a readable `INDEX.md` that lists everything saved. Files are named by the tool, never by the agent.
-- **Back up**: ask `Back up my data.` **Move to another computer**: copy the whole data folder, then run `set-data-dir` there.
 
-## Privacy
-- All saved data stays on your computer, in the data folder. The harness has no server and its scripts make no network calls.
-- The AI model you use sees what you type and what the agent reads, such as profile facts and any contact details you enter. Resume drafts use placeholders for name and contact, and the build fills them in locally.
-- Free model providers may log prompts. Read their terms before using real personal data, or use a local model.
-- A saved photo is copied into your data folder and used only by the local build.
+Everything about you is saved in one folder on your computer, separate from the program. Ask `Where is my data?` and the agent will print the path.
 
-## Troubleshooting
-- **First step for any problem**: run `python scripts/rh.py doctor`. It says what is missing.
-- **The agent ignores this harness**: start your message with `Read AGENTS.md and follow it.`
-- **The agent says it cannot find skills (OpenCode)**: copy them into OpenCode's own folder:
+You can back up, move, or delete that folder at any time. The agent is instructed not to edit it by hand; the harness manages the versions.
 
-```bash
-mkdir -p .opencode/skills && cp -r .claude/skills/* .opencode/skills/
-```
+Details: [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md).
 
-- **No PDF**: install a PDF engine. On Debian or Ubuntu:
+## Updates
 
-```bash
-sudo apt install texlive-latex-base texlive-latex-extra poppler-utils
-```
+The harness checks for a new version once a day. It reads one public version file and sends nothing about you or your computer. You can switch the check off.
 
-  On macOS with Homebrew run `brew install --cask mactex-no-gui` and `brew install poppler`. On Windows install MiKTeX and let it install missing packages. You can also upload the Overleaf zip to overleaf.com. The Word file works without any of this.
-- **The agent invents a command, writes files by hand, or skips questions**: switch to a larger model and remind it: `Follow AGENTS.md exactly.`
-- **`ERROR:` and `HINT:` lines** from the tool say what to do.
-- **A bug**: open an issue and paste the output of `python scripts/rh.py doctor`. Use fictional data only.
+To update, ask `Is there a newer version?` The agent updates the program files only after you say yes. Your data folder is never touched.
 
-## Start over or remove everything
-- **Delete all saved data** (a fresh install): ask the agent `Delete all my data.` It will ask you to type `DELETE ALL DATA`.
-- **Delete one person**: ask `Delete the data for <name>.`
-- **Remove the program**: delete the harness folder. Your data folder is separate, so delete it too if you want everything gone.
+To remove the program, delete the `resume-harness` folder. To remove your saved data too, ask `Delete all my data.` The harness asks you to type a confirmation phrase first.
 
-## For developers
-Everything below is for people changing the harness. Users can skip it.
+## If something goes wrong
 
-**Run the full test suite** (uses a temporary folder and fictional data, never your real data):
+| Problem | What to do |
+| --- | --- |
+| Something is missing | Ask `Run the setup check and explain what is missing.` The command is `python scripts/rh.py doctor` |
+| The agent ignores the rules | Start your message with `Read AGENTS.md and follow it.` |
+| The agent does not load the skills | Say `Read AGENTS.md, then read .claude/skills/resume-workflow/SKILL.md, and follow it.` |
+| The agent lost your place | Ask `Where did we get to?` |
+| The agent guesses | Stop it: `That is not true. Remove it and check the rest.` If it repeats, use a more capable model |
+| You found a bug | Open an issue and paste the setup output. Use made-up details only, never your real ones |
 
-```bash
-python dev/selftest.py
-```
+## Which file do I need?
 
-**Check that skills, commands, and docs agree with the code, and that no personal data is in the repository:**
+| I want to... | Read |
+| --- | --- |
+| Choose or install an agent | [docs/AGENT-INSTALL.md](docs/AGENT-INSTALL.md) |
+| Install, update, or remove the harness | [docs/INSTALL.md](docs/INSTALL.md) |
+| Copy prompts for a specific task | [docs/USAGE.md](docs/USAGE.md) |
+| Follow a full first resume | [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) |
+| Understand the design and safety rules | [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) |
+| See what changed | [CHANGELOG.md](CHANGELOG.md) |
 
-```bash
-python dev/verify_harness.py
-```
+## Licence
 
-**Try the data tool without an AI agent**, using the fictional example files. Create the person:
-
-```bash
-python scripts/rh.py --data-dir /tmp/rh-demo person create --name "Alex Example"
-```
-
-Save contact details and the profile:
-
-```bash
-python scripts/rh.py --data-dir /tmp/rh-demo contact set alex-example --file examples/example-contact.json
-```
-
-```bash
-python scripts/rh.py --data-dir /tmp/rh-demo profile add alex-example --file examples/example-profile.json
-```
-
-Save the company and the job posting:
-
-```bash
-python scripts/rh.py --data-dir /tmp/rh-demo company create --name "Northwind Example Corp"
-```
-
-```bash
-python scripts/rh.py --data-dir /tmp/rh-demo job create northwind-example --title "Junior Web Application Security Engineer" --jd-file examples/example-job-description.md
-```
-
-Save the job analysis (use the job slug printed by the previous command):
-
-```bash
-python scripts/rh.py --data-dir /tmp/rh-demo job analysis-save northwind-example <job-slug> --file examples/example-analysis.json
-```
-
-Create the application (it prints the application id):
-
-```bash
-python scripts/rh.py --data-dir /tmp/rh-demo app create alex-example --company northwind-example --job <job-slug>
-```
-
-Save the resume text and its evidence map:
-
-```bash
-python scripts/rh.py --data-dir /tmp/rh-demo app save alex-example <app-id> resume-md --file examples/example-resume.md
-```
-
-```bash
-python scripts/rh.py --data-dir /tmp/rh-demo app save alex-example <app-id> evidence-map --file examples/example-evidence-map.md
-```
-
-Build the files, run all checks, and export:
-
-```bash
-python scripts/rh.py --data-dir /tmp/rh-demo build alex-example <app-id>
-```
-
-```bash
-python scripts/rh.py --data-dir /tmp/rh-demo check alex-example <app-id>
-```
-
-```bash
-python scripts/rh.py --data-dir /tmp/rh-demo export alex-example <app-id>
-```
-
-Delete the demo data:
-
-```bash
-python scripts/rh.py --data-dir /tmp/rh-demo reset --confirm "DELETE ALL DATA"
-```
-
-**Optional slash-command shortcuts** exist for people who prefer them: `/onboard`, `/new-job`, `/build`, `/review`, `/data`. Plain English does the same.
-
-**Folder map**
-- `AGENTS.md` and `CLAUDE.md`: the rules the agent reads.
-- `.claude/skills/`: the 8 skills (OpenCode reads this folder too). `.claude/commands/` and `.opencode/commands/`: the shortcuts.
-- `scripts/`: the data tool (`rh.py`) and its modules.
-- `config/`: settings, regions, and the profile schema. `templates/`: the LaTeX template. `examples/`: fictional data.
-- `dev/`: tests and maintainer notes. `docs/images/`: screenshots for this README.
-
-**Known limits**
-- **Truth is bounded by the profile.** The checks catch claims the profile does not support. They cannot know whether the profile itself is true.
-- **Regional rules are defaults, not law.** They summarise common practice and can differ by employer. The user decides.
-- **Recon needs web access** in the agent. Without it, the user pastes the company's About and Careers text.
-- **Overleaf is manual**: upload the zip yourself.
-- **Not tested** on Windows, macOS, `tectonic`, or Microsoft Word.
-
-## License
-GPL-3.0. See the `LICENSE` file.
+GPL-3.0. See `LICENSE`.

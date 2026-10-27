@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Setup check for users:  python scripts/rh.py doctor
 
-Answers one question in plain words: is this computer ready to use the Resume Harness?
+Answers one question clearly: is this computer ready to use the Resume Harness?
 It changes nothing and never touches saved data. It builds a test PDF from the fictional
 example files, in memory, to prove the PDF engine really works.
 
 Required items (Python, harness files, a usable data folder) decide the exit code.
-PDF output, the ATS text tool, and the AI agent are reported separately, because the
-harness still makes the Word file and the Overleaf zip without them.
+PDF output, the ATS text tool, and an OpenCode or Claude Code command are reported
+separately, because the harness still makes the Word file and the Overleaf zip without them.
 
 Python 3.9+, standard library only.
 """
@@ -77,8 +77,12 @@ def run() -> int:
 
     # 1. Python
     v = sys.version_info
+    command = rhlib.python_command()
     if v >= (3, 9):
-        ok(f"Python {v.major}.{v.minor}.{v.micro}")
+        ok(f"Python {v.major}.{v.minor}.{v.micro} at {sys.executable}")
+        ok(f"Run harness commands as: {command} scripts/rh.py <command>")
+        if command != "python":
+            lines.append(f"      Use that form if plain 'python' is not found on this machine.")
     else:
         need(f"Python {v.major}.{v.minor} is too old.", "Install Python 3.9 or newer from python.org, then run this check again.")
 
@@ -98,6 +102,9 @@ def run() -> int:
     if data_root == root or rhlib._inside(data_root, root):
         need(f"The data folder is inside the harness folder: {data_root}",
              "Choose a folder outside it: python scripts/rh.py set-data-dir <folder>")
+    elif data_root.exists() and not data_root.is_dir():
+        need(f"The data folder path is a file, not a folder: {data_root}",
+             "Choose a folder path: python scripts/rh.py set-data-dir <folder>")
     elif (data_root / rhlib.MARKER_NAME).exists():
         people = len(list((data_root / "people").iterdir())) if (data_root / "people").exists() else 0
         ok(f"Data folder exists: {data_root} ({people} saved people)")
@@ -146,10 +153,11 @@ def run() -> int:
     # 6. AI agent
     found = [name for name in ("opencode", "claude") if shutil.which(name)]
     if found:
-        ok("AI coding agent found: " + ", ".join(found))
+        ok("OpenCode or Claude Code found: " + ", ".join(found))
     else:
-        optional("No AI coding agent found on this computer's PATH.",
-                 "Install OpenCode (opencode.ai) or Claude Code, then open this folder in it. See the README, Quick start.")
+        optional("No OpenCode or Claude Code command found on this computer's PATH.",
+                 "Install one of them, or use another capable agent and ignore this note. "
+                 "See docs/AGENT-INSTALL.md for all agents, or docs/INSTALL.md for the harness steps.")
 
     print("Resume Harness setup check")
     print("-" * 26)

@@ -25,7 +25,7 @@ Write `scratch/review.md` with the headings in `references/review-personas.md` a
 `python scripts/rh.py app save <person> <app> review --file scratch/review.md`
 
 ## 5. Fix (at most 2 rounds)
-For each finding you can fix with true facts: edit `scratch/resume.md` and the evidence map, save new versions (`resume-md`, `evidence-map`), run `truth`, run `build`, run `check`. Do not fix by inventing. If a fix needs a fact you do not have, ask the user one question.
+For each finding you can fix with true facts: read the latest resume and evidence map back with `python scripts/rh.py app cat <person> <app> resume-md` and `python scripts/rh.py app cat <person> <app> evidence-map`, write them to `scratch/resume.md` and `scratch/evidence-map.md` again (the earlier scratch files were deleted after saving), edit, save new versions (`resume-md`, `evidence-map`), run `truth`, run `lint`, rebuild, run `check`, then write the updated review to `scratch/review.md` and save it again. Do not fix by inventing. If a fix needs a fact you do not have, ask the user one question.
 After 2 rounds, stop. List what remains.
 
 ## 6. Finish

@@ -7,7 +7,10 @@ Policy (FAIL when broken):
   - No personal data that does not belong on a resume (date of birth, marital status, ...).
   - Photo only where the region allows it and a photo is saved.
 Lint (WARN): filler phrases, first-person pronouns, repeated opening verbs, long or short bullets,
-long summary, wrong tense for finished jobs, mixed date styles, wrong date order, employment gaps.
+long summary, wrong tense for finished jobs, mixed date styles, wrong date order, employment gaps,
+likely typos, repeated words, a missing space after a full stop, and British and American spelling
+mixed in one document. A resume with no findings in the first four groups is the goal; the rest are
+questions for the writer to answer, never a reason to fail a build.
 
 Python 3.9+, standard library only.
 """
@@ -16,7 +19,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import build_resume
 import rhlib
@@ -98,7 +101,7 @@ def policy_findings(root: Path, person: str, app_id: str, md_text: str) -> List[
     regions = rhlib.load_regions()
     app = rhlib.app_settings(root, person, app_id)
     region = regions[app["region"]]
-    doc = build_resume.parse_resume_md(md_text)
+    doc = build_resume.parse_resume_md(md_text, require_sections=False)
     prof_text = rhlib.profile_text(rhlib.load_profile(root, person))
 
     # header: name, designation, contact
@@ -169,6 +172,131 @@ def policy_findings(root: Path, person: str, app_id: str, md_text: str) -> List[
 
 
 # --------------------------------------------------------------------------
+# spelling and word errors (WARN only: a warning is a question, not a failure)
+# --------------------------------------------------------------------------
+
+# Words that are almost always a typo, and the word they were meant to be.
+# Keys and values are lowercase; matching is on whole words only, so a name or a
+# product that contains one of these as a part is never touched.
+MISSPELLINGS = {
+    "acheive": "achieve", "acheived": "achieved", "acheivement": "achievement",
+    "acheivements": "achievements", "acheiving": "achieving",
+    "acomplished": "accomplished", "acomplishment": "accomplishment", "acomplishments": "accomplishments",
+    "aditional": "additional", "adress": "address", "adressed": "addressed", "alot": "a lot",
+    "arguement": "argument", "assisstance": "assistance", "attatched": "attached",
+    "begining": "beginning", "buisness": "business", "busines": "business", "carrer": "career",
+    "collabrated": "collaborated", "collabration": "collaboration", "comittee": "committee",
+    "comunication": "communication", "concious": "conscious",
+    "definately": "definitely", "developement": "development", "developper": "developer",
+    "developped": "developed", "efficent": "efficient", "efficency": "efficiency",
+    "enginering": "engineering", "enviroment": "environment", "enviornment": "environment",
+    "excelent": "excellent", "experiance": "experience", "familar": "familiar",
+    "faciliate": "facilitate", "facilited": "facilitated", "futher": "further",
+    "goverment": "government", "guarentee": "guarantee", "higest": "highest",
+    "immediatly": "immediately", "independant": "independent", "intergrated": "integrated",
+    "knowlege": "knowledge", "liason": "liaison", "maintainance": "maintenance",
+    "maintainence": "maintenance", "managable": "manageable", "managment": "management",
+    "mangement": "management", "neccessary": "necessary", "neccesary": "necessary",
+    "necesary": "necessary", "occured": "occurred", "occuring": "occurring",
+    "perfomance": "performance", "performace": "performance", "persmission": "permission",
+    "positon": "position", "profesionally": "professionally", "profesionals": "professionals",
+    "proffesional": "professional", "recomend": "recommend", "recomended": "recommended",
+    "recomendation": "recommendation", "recieve": "receive", "recieved": "received",
+    "recieving": "receiving", "relevent": "relevant", "responsability": "responsibility",
+    "responsabilities": "responsibilities", "responsibile": "responsible", "responsibilty": "responsibility",
+    "resposible": "responsible", "seperate": "separate", "seperated": "separated",
+    "seperately": "separately", "similiar": "similar", "specificaly": "specifically",
+    "strenght": "strength", "succes": "success", "succesful": "successful",
+    "succesfully": "successfully", "sucess": "success", "sucesses": "successes",
+    "sucessful": "successful", "sucessfully": "successfully", "supoprt": "support",
+    "suport": "support", "teh": "the", "thier": "their", "tommorow": "tomorrow",
+    "untill": "until", "wich": "which", "withing": "within", "writting": "writing",
+}
+
+# A doubled word is only worth reporting for these, so that a name such as
+# "Bhatt and Bhatt" is never flagged.
+REPEATED_WORDS = ["a", "an", "and", "as", "at", "by", "for", "from", "in", "is", "it",
+                  "of", "on", "or", "our", "that", "the", "this", "to", "we", "with"]
+
+# British and American spellings. Both are correct English somewhere, so finding two
+# forms of the same word in one document is reported as a question ("pick one"), not as
+# an error. Only full words are listed, and only where the pair is unambiguous; words
+# that are correct in both senses (program, licence, practice) are deliberately absent.
+BRITISH_AMERICAN: List[Tuple[List[str], List[str]]] = [
+    (["analyse", "analysed", "analysing"], ["analyze", "analyzed", "analyzing"]),
+    (["organisation", "organisations", "organise", "organised", "organising"],
+     ["organization", "organizations", "organize", "organized", "organizing"]),
+    (["recognise", "recognised", "recognising"], ["recognize", "recognized", "recognizing"]),
+    (["prioritise", "prioritised", "prioritising"], ["prioritize", "prioritized", "prioritizing"]),
+    (["optimise", "optimised", "optimising"], ["optimize", "optimized", "optimizing"]),
+    (["utilise", "utilised", "utilising"], ["utilize", "utilized", "utilizing"]),
+    (["minimise", "minimised", "minimising"], ["minimize", "minimized", "minimizing"]),
+    (["maximise", "maximised", "maximising"], ["maximize", "maximized", "maximizing"]),
+    (["summarise", "summarised", "summarising"], ["summarize", "summarized", "summarizing"]),
+    (["standardise", "standardised", "standardising"], ["standardize", "standardized", "standardizing"]),
+    (["specialise", "specialised", "specialising"], ["specialize", "specialized", "specializing"]),
+    (["customise", "customised", "customising"], ["customize", "customized", "customizing"]),
+    (["centre", "centres"], ["center", "centers"]),
+    (["behaviour", "behaviours"], ["behavior", "behaviors"]),
+    (["colour", "colours"], ["color", "colors"]),
+    (["favour", "favours", "favoured"], ["favor", "favors", "favored"]),
+    (["defence", "defences"], ["defense", "defenses"]),
+    (["catalogue", "catalogues"], ["catalog", "catalogs"]),
+    (["modelling"], ["modeling"]),
+    (["travelled", "travelling"], ["traveled", "traveling"]),
+    (["cancelled", "cancelling"], ["canceled", "canceling"]),
+    (["labelled", "labelling"], ["labeled", "labeling"]),
+    (["enrolment"], ["enrollment"]),
+    (["fulfilment"], ["fulfillment"]),
+]
+
+
+def markdown_to_plain(text: str) -> str:
+    """Drop link addresses and markup, so that a spelling check sees only prose."""
+    text = re.sub(r"\[([^\]]*)\]\(([^)]*)\)", r"\1", text)
+    text = re.sub(r"https?://\S+|\bwww\.\S+|\b[\w.-]+\.(?:com|org|net|io|dev|ai|co)\b\S*", " ", text)
+    return re.sub(r"[*`|_]", " ", text)
+
+
+def _word_hits(low: str, words: List[str]) -> List[str]:
+    return [w for w in words if re.search(r"(?<![A-Za-z])" + re.escape(w) + r"(?![A-Za-z])", low)]
+
+
+def spelling_warnings(text: str, allow: Optional[Set[str]] = None) -> List[str]:
+    """Typos, repeated words, and a missing space after a full stop. Call once per bullet or paragraph."""
+    allow = allow or set()
+    plain = markdown_to_plain(text)
+    low = plain.lower()
+    out: List[str] = []
+    seen: Set[str] = set()
+    for word in re.findall(r"[a-z][a-z'-]*", low):
+        fix = MISSPELLINGS.get(word)
+        if fix and word not in allow and word not in seen:
+            seen.add(word)
+            out.append(f"\"{word}\" looks like a typo for \"{fix}\".")
+    for word in REPEATED_WORDS:
+        if re.search(r"(?<![A-Za-z])" + word + r"\s+" + word + r"(?![A-Za-z])", low):
+            out.append(f"\"{word} {word}\" is repeated.")
+    m = re.search(r"[a-z]{2}\.[A-Z][a-z]{2,}", plain)
+    if m:
+        out.append(f"A space seems to be missing after a full stop, near \"{m.group(0)}\".")
+    return out
+
+
+def variant_warnings(text: str, allow: Optional[Set[str]] = None) -> List[str]:
+    """Mixed British and American spelling. Pass the whole document, not one bullet."""
+    allow = allow or set()
+    low = markdown_to_plain(text).lower()
+    out: List[str] = []
+    for british, american in BRITISH_AMERICAN:
+        b = _word_hits(low, british)
+        a = _word_hits(low, american)
+        if b and a and not set(b + a) <= allow:
+            out.append(f"Mixes British and American spelling: \"{b[0]}\" and \"{a[0]}\". Pick one and use it throughout.")
+    return out
+
+
+# --------------------------------------------------------------------------
 # lint
 # --------------------------------------------------------------------------
 
@@ -231,6 +359,17 @@ def lint_findings(md_text: str) -> List[Finding]:
         if entry_bullets > 5:
             warn("many", f"\"{entry_name}\" has {entry_bullets} bullets; keep the best 2 to 5.")
 
+    # spelling and word errors (WARN only)
+    allow = {str(w).lower() for w in lc.get("spell_allow", [])}
+    counted: Dict[str, int] = {}
+    for _, item in texts:
+        for msg in spelling_warnings(item, allow):
+            counted[msg] = counted.get(msg, 0) + 1
+    for msg, n in counted.items():
+        warn("spelling", msg if n == 1 else f"{msg} (appears {n} times)")
+    for msg in variant_warnings(" ".join(t for _, t in texts), allow):
+        warn("spelling", msg)
+
     # filler phrases and pronouns
     for section, text in texts:
         for phrase in conf.get("banned_phrases", []):
@@ -273,14 +412,74 @@ def lint_findings(md_text: str) -> List[Finding]:
     out: List[Finding] = []
     labels = {"filler": "Wording", "pronoun": "Wording", "repeat": "Verbs", "length": "Bullet length", "summary": "Summary",
               "tense": "Tense", "datestyle": "Dates", "date": "Dates", "order": "Date order", "gap": "Gap",
-              "overlap": "Overlap", "many": "Bullets per entry"}
+              "overlap": "Overlap", "many": "Bullets per entry", "spelling": "Spelling"}
     for category, items in warns.items():
         for msg in items[:6]:
             out.append(_f("WARN", f"{labels.get(category, category)}: {msg}"))
         if len(items) > 6:
             out.append(_f("WARN", f"{labels.get(category, category)}: {len(items) - 6} more of the same kind."))
     if not out:
-        out.append(_f("PASS", "Writing lint clean: no filler, pronouns, repeated openers, tense or date problems."))
+        out.append(_f("PASS", "Writing lint clean: no filler, pronouns, repeated openers, tense, date or spelling problems."))
+    return out
+
+
+# --------------------------------------------------------------------------
+# cover letter and longer CV
+# --------------------------------------------------------------------------
+
+def _prefix(label: str, findings: List[Finding]) -> List[Finding]:
+    return [{"level": item["level"], "msg": f"{label}: {item['msg']}"} for item in findings]
+
+
+def prose_findings(text: str) -> List[Finding]:
+    """Spelling and filler checks for cover-letter prose (first person is normal there)."""
+    conf = rhlib.settings()
+    lc = conf.get("lint", {})
+    allow = {str(w).lower() for w in lc.get("spell_allow", [])}
+    doc = build_resume.parse_letter_md(text)
+    paragraphs = doc["paragraphs"]
+    out: List[Finding] = []
+    for paragraph in paragraphs:
+        for msg in spelling_warnings(paragraph, allow):
+            out.append(_f("WARN", f"Spelling: {msg}"))
+        for phrase in conf.get("banned_phrases", []):
+            pat = r"(?<![A-Za-z0-9])" + re.escape(phrase) + (r"\.?" if phrase == "etc" else "") + r"(?![A-Za-z0-9])"
+            if re.search(pat, paragraph, re.I):
+                out.append(_f("WARN", f"Wording: Filler wording \"{phrase}\" in: \"{_snippet(paragraph)}\""))
+    for msg in variant_warnings(" ".join(paragraphs), allow):
+        out.append(_f("WARN", f"Spelling: {msg}"))
+    if not out:
+        out.append(_f("PASS", "Writing lint clean: no filler or spelling problems."))
+    return out
+
+
+def extra_document_findings(root: Path, person: str, app_id: str) -> List[Finding]:
+    """Policy and writing checks for the saved cover letter and longer CV.
+
+    The evidence-map truth gate stays resume-specific; these checks catch the
+    policy and writing errors that are mechanical. The writer still has to keep
+    every claim in these documents true to the profile.
+    """
+    out: List[Finding] = []
+    for stage, label in (("cover-letter", "Cover letter"), ("cv-md", "Longer CV")):
+        latest = rhlib.app_latest(root, person, app_id, stage)
+        if not latest:
+            continue
+        text = latest[1].read_text(encoding="utf-8")
+        try:
+            out.extend(_prefix(label, policy_findings(root, person, app_id, text)))
+        except rhlib.RHError as exc:
+            out.append(_f("FAIL", f"{label}: {exc}"))
+        if stage == "cv-md":
+            try:
+                out.extend(_prefix(label, lint_findings(text)))
+            except rhlib.RHError as exc:
+                out.append(_f("FAIL", f"{label}: {exc}"))
+        else:
+            try:
+                out.extend(_prefix(label, prose_findings(text)))
+            except rhlib.RHError as exc:
+                out.append(_f("FAIL", f"{label}: {exc}"))
     return out
 
 
@@ -293,7 +492,8 @@ def run_lint(root: Path, person: str, app_id: str) -> Tuple[List[Finding], Path]
     if not md:
         raise rhlib.RHError("No resume Markdown saved yet.", "Save it first: python scripts/rh.py app save <person> <app> resume-md --file <file>")
     text = md[1].read_text(encoding="utf-8")
-    findings = policy_findings(root, person, app_id, text) + lint_findings(text)
+    findings = (policy_findings(root, person, app_id, text) + lint_findings(text)
+                + extra_document_findings(root, person, app_id))
     import ats_check  # local import: ats_check also imports this module
     d = rhlib.app_dir(root, person, app_id)
     path = rhlib.save_versioned(d, "lint-report", "md", ats_check.render_report("Policy and writing lint report", findings))

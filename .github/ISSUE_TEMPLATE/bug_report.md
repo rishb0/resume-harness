@@ -14,6 +14,6 @@ labels: bug
 **Your setup**
 - Harness version (`VERSION` file):
 - Operating system:
-- Agent and model (OpenCode, Claude Code, which model):
+- Agent and model (for example OpenCode, Claude Code, Cursor, or another agent, and which model):
 
 **Output of** `python scripts/rh.py doctor` (paste all of it)

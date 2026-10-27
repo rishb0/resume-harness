@@ -3,6 +3,12 @@
   "default_region": "other",
   "default_pages": 1,
   "default_max_pages": 2,
+  "update_check": true,
+  "brief_rules": [
+    "Never invent a fact. Every resume bullet must trace to a profile id.",
+    "Ask one question at a time and wait for the answer.",
+    "Only rh.py touches the data folder, and personal data never goes inside the harness folder."
+  ],
   "statuses": ["draft", "built", "reviewed", "applied", "interview", "offer", "rejected", "withdrawn"],
   "standard_headings": [
     "Summary", "Professional Summary", "Experience", "Professional Experience", "Work Experience",
@@ -39,7 +45,8 @@
     "summary_max_sentences": 3,
     "repeat_opener_limit": 2,
     "gap_months_warn": 6,
-    "sparse_fill_warn": 0.6
+    "sparse_fill_warn": 0.6,
+    "spell_allow": []
   },
   "banned_phrases": [
     "hard-working", "hard working", "hardworking", "passionate", "innovative", "dynamic", "synergy",
@@ -51,7 +58,7 @@
     {"name": "airy",    "font": "11pt", "margin_h": "0.80in", "margin_v": "0.70in", "linespread": "1.08", "itemsep": "3pt",   "sec_before": "12pt", "sec_after": "4pt"},
     {"name": "roomy",   "font": "11pt", "margin_h": "0.70in", "margin_v": "0.60in", "linespread": "1.03", "itemsep": "2pt",   "sec_before": "10pt", "sec_after": "3pt"},
     {"name": "regular", "font": "10pt", "margin_h": "0.70in", "margin_v": "0.60in", "linespread": "1.05", "itemsep": "2pt",   "sec_before": "9pt",  "sec_after": "3pt"},
-    {"name": "compact", "font": "10pt", "margin_h": "0.65in", "margin_v": "0.55in", "linespread": "1.00", "itemsep": "1pt",   "sec_before": "8pt",  "sec_after": "3pt"},
-    {"name": "tight",   "font": "10pt", "margin_h": "0.55in", "margin_v": "0.50in", "linespread": "0.97", "itemsep": "0.5pt", "sec_before": "6pt",  "sec_after": "2pt"}
+    {"name": "compact", "font": "10pt", "margin_h": "0.65in", "margin_v": "0.60in", "linespread": "1.00", "itemsep": "1pt",   "sec_before": "8pt",  "sec_after": "3pt"},
+    {"name": "tight",   "font": "10pt", "margin_h": "0.65in", "margin_v": "0.60in", "linespread": "0.96", "itemsep": "0pt", "sec_before": "5pt",  "sec_after": "2pt"}
   ]
 }

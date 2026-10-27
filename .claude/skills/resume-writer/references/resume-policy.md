@@ -25,7 +25,7 @@ Nothing else goes in the header. The builder fixes this order; the check confirm
 ## 4. Links (FAIL for social media or more than 3)
 - Allowed: LinkedIn for everyone; GitHub or a portfolio for technical work; Behance or Dribbble for design; Google Scholar or ORCID for research.
 - Not allowed: Instagram, WhatsApp, Twitter or X, Facebook, Telegram, Snapchat, TikTok, Pinterest, Reddit, Discord, Threads, and similar. This applies to links, handles, and mentions in the text.
-- Maximum 3 links. `contact set` refuses blocked links and a fourth link.
+- Maximum 3 links. The contact form (and `contact set`) refuses blocked links and a fourth link.
 
 ## 5. Personal data (FAIL)
 Do not write: date of birth or age, marital status, religion, gender, caste, parents' names, ID numbers (Aadhaar, PAN, passport, national ID, social security), or a full "Address:" line.

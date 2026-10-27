@@ -11,6 +11,7 @@ Run:  python dev/verify_harness.py
 """
 from __future__ import annotations
 
+import ast
 import io
 import re
 import shlex
@@ -64,7 +65,7 @@ def main() -> int:
         fm = frontmatter(d / "SKILL.md") if (d / "SKILL.md").exists() else None
         ok = bool(fm) and fm.get("name") == d.name and bool(fm.get("description")) and yaml_safe(fm["description"]) \
             and re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", d.name) is not None and len(fm["description"]) <= 1024
-        check(f"skill '{d.name}' has valid frontmatter (name matches folder, description is valid YAML)", ok, str(fm))
+        check(f"skill '{d.name}' has frontmatter (name matches folder, description is YAML-safe)", ok, str(fm))
 
     oc, cc = ROOT / ".opencode" / "commands", ROOT / ".claude" / "commands"
     names = sorted(p.name for p in oc.glob("*.md"))
@@ -78,8 +79,8 @@ def main() -> int:
         check(f"command '{n}' has a YAML-safe description", bool(fm) and "description" in fm and yaml_safe(fm["description"]), str(fm))
 
     # ---- references: paths and skill names mentioned in documents must exist -----------
-    docs = [ROOT / "AGENTS.md", ROOT / "README.md", ROOT / "docs" / "images" / "README.md"] + list(skills_dir.glob("*/SKILL.md")) + \
-        list(skills_dir.glob("*/references/*.md")) + list(oc.glob("*.md"))
+    docs = [ROOT / "AGENTS.md", ROOT / "README.md"] + sorted((ROOT / "docs").rglob("*.md")) + \
+        list(skills_dir.glob("*/SKILL.md")) + list(skills_dir.glob("*/references/*.md")) + list(oc.glob("*.md"))
     missing = []
     for doc in docs:
         if not doc.exists():
@@ -98,6 +99,24 @@ def main() -> int:
             if skill not in expected:
                 missing.append(f"{doc.name}: unknown skill {skill}")
     check("every file path and skill named in the documents exists", not missing, "; ".join(missing))
+
+    # ---- local Markdown links must resolve relative to the file that contains them ------
+    link_docs = [ROOT / "README.md", ROOT / "AGENTS.md", ROOT / "SECURITY.md", ROOT / "CHANGELOG.md"] + \
+        sorted((ROOT / "docs").rglob("*.md")) + sorted((ROOT / ".github").rglob("*.md"))
+    bad_links = []
+    for doc in link_docs:
+        if not doc.exists():
+            continue
+        text = doc.read_text(encoding="utf-8")
+        text = re.sub(r"```.*?```", "", text, flags=re.S)
+        text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+        for target in re.findall(r"!?\[[^\]]*\]\(([^)\s]+)(?:\s+[\"'][^\"']*[\"'])?\)", text):
+            if target.startswith(("http://", "https://", "mailto:", "#")):
+                continue
+            clean = target.split("#", 1)[0]
+            if clean and not (doc.parent / clean).resolve().exists():
+                bad_links.append(f"{doc.relative_to(ROOT)}: {target}")
+    check("every local Markdown link resolves relative to its file", not bad_links, "; ".join(bad_links))
 
     # ---- commands written in documents must parse with the real parser -----------------
     parser = rh.make_parser()
@@ -168,6 +187,11 @@ def main() -> int:
     check("template has all builder markers", all(f"%%{m}%%" in tpl for m in markers),
           str([m for m in markers if f"%%{m}%%" not in tpl]))
     check("template measures page fill and loads graphicx for the photo", "RH-FILL" in tpl and "graphicx" in tpl)
+    let = (ROOT / "templates" / "latex" / "cover-letter" / "template.tex").read_text(encoding="utf-8")
+    letter_markers = ["HEADER", "BODY", "PAPER", "PDF_TITLE", "PDF_AUTHOR", "SOURCE", "FONTSIZE",
+                      "MARGIN_H", "MARGIN_V", "LINESPREAD", "PARASKIP"]
+    check("cover letter template has all builder markers", all(f"%%{m}%%" in let for m in letter_markers),
+          str([m for m in letter_markers if f"%%{m}%%" not in let]))
     conf = json.loads((ROOT / "config" / "settings.json").read_text(encoding="utf-8"))
     regions = json.loads((ROOT / "config" / "regions.json").read_text(encoding="utf-8"))
     check("regions are valid and the default region exists",
@@ -176,6 +200,13 @@ def main() -> int:
     need = {"name", "font", "margin_h", "margin_v", "linespread", "itemsep", "sec_before", "sec_after"}
     check("autofit presets are complete and ordered roomy to tight (at least 3)",
           len(conf["autofit_presets"]) >= 3 and all(need <= set(x) for x in conf["autofit_presets"]))
+    # A resume that is squeezed to the edge of the paper looks cramped and can be clipped by a
+    # printer. The ladder may get tighter than this in other ways, but never in the margins.
+    def _inches(value: str) -> float:
+        return float(str(value).lower().replace("in", "").strip())
+    check("no autofit preset goes below a 0.65in horizontal or 0.60in vertical margin",
+          all(_inches(x["margin_h"]) >= 0.65 and _inches(x["margin_v"]) >= 0.6 for x in conf["autofit_presets"]),
+          str([(x["name"], x["margin_h"], x["margin_v"]) for x in conf["autofit_presets"]]))
     check("social media block list covers the main platforms",
           all(any(d in conf["blocked_link_domains"] for d in group) for group in
               (["instagram.com"], ["wa.me", "whatsapp.com"], ["twitter.com", "x.com"], ["facebook.com"], ["t.me"], ["snapchat.com"])))
@@ -184,6 +215,16 @@ def main() -> int:
     check("VERSION file matches the README and CHANGELOG",
           (ROOT / "VERSION").read_text().strip() in (ROOT / "README.md").read_text(encoding="utf-8")
           and f"## {(ROOT / 'VERSION').read_text().strip()}" in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"))
+    bad_newline = []
+    for path in list((ROOT / "scripts").glob("*.py")) + list((ROOT / "dev").glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in ("read_text", "write_text")
+                    and any(k.arg == "newline" for k in node.keywords)):
+                bad_newline.append(f"{path.name}:{node.lineno}")
+    check("no Path.read_text/write_text(newline=...) calls (Python 3.9 compatibility)",
+          not bad_newline, ", ".join(bad_newline))
 
 
     # ---- README rules for a product: users are never sent to dev tools; images must exist -----------
@@ -205,8 +246,8 @@ def main() -> int:
     leaks = []
     allowed_email = re.compile(r"@(example\.(com|org)|northwind\.example)$")
     for p in ROOT.rglob("*"):
-        if not p.is_file() or "__pycache__" in p.parts or p.suffix in (".pdf", ".zip", ".png"):
-            continue
+        if not p.is_file() or ".git" in p.parts or "__pycache__" in p.parts or p.suffix in (".pdf", ".zip", ".png"):
+            continue  # .git holds committer names and addresses, which are not part of the harness
         if p.name == "data_location.txt":
             leaks.append(f"{p.relative_to(ROOT)} exists (local setting; remove before sharing)")
             continue

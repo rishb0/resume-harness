@@ -159,10 +159,63 @@ def extract_pdf_text(pdf: Path) -> Tuple[str, Optional[int], str]:
     try:
         from pypdf import PdfReader  # type: ignore
         reader = PdfReader(str(pdf))
-        return "\n".join((p.extract_text() or "") for p in reader.pages), len(reader.pages), "pypdf"
+        return "\f".join((p.extract_text() or "") for p in reader.pages), len(reader.pages), "pypdf"
     except ImportError:
         raise RHError("No PDF text extractor found.",
                       "Install poppler-utils (provides pdftotext), or run: pip install pypdf")
+
+
+def page_texts(text: str) -> List[str]:
+    """Per-page text prepared for searching: lowercase, single spaces, split words rejoined."""
+    pages = []
+    for page in text.split("\f"):
+        page = re.sub(r"-\s*\n\s*", "", page)                    # a word split by a hyphen at a line break
+        page = re.sub(r"[^A-Za-z0-9]+", " ", page).lower()
+        pages.append(" " + re.sub(r"\s+", " ", page).strip() + " ")
+    return pages
+
+
+def find_page(pages: List[str], phrase: str) -> Optional[int]:
+    """The 0-based page a phrase lands on, or None when it cannot be found reliably."""
+    words = re.findall(r"[A-Za-z0-9]+", phrase.lower())
+    for size in (7, 5, 3):
+        probe = words[:size]
+        if len(probe) < 3:
+            continue
+        needle = " " + " ".join(probe) + " "
+        for index, page in enumerate(pages):
+            if needle in page:
+                return index
+    return None
+
+
+def page_break_findings(doc: Dict[str, Any], text: str, pages: Optional[int]) -> List[Finding]:
+    """An entry that starts on one page and finishes on the next reads badly in print."""
+    if not pages or pages < 2:
+        return []
+    page_list = page_texts(text)
+    out: List[Finding] = []
+    checked = 0
+    for sec in doc["sections"]:
+        heading: Optional[List[str]] = None
+        for kind, value in sec["blocks"]:
+            if kind == "entry":
+                heading = value
+            elif kind == "bullets" and heading:
+                fields = [x for x in heading[:2] if x]
+                start = find_page(page_list, " ".join(fields))
+                if start is None and fields:
+                    start = find_page(page_list, fields[0])
+                end = find_page(page_list, value[-1])
+                if start is not None and end is not None:
+                    checked += 1
+                    if end > start:
+                        out.append(_f("WARN", f"\"{heading[0]}\" starts on page {start + 1} and runs onto "
+                                             f"page {end + 1}. Shorten it, or move a bullet, then build again."))
+                heading = None
+    if not out and checked >= 3:
+        out.append(_f("PASS", f"No entry is split across a page break ({checked} entries checked)."))
+    return out
 
 
 def ats_findings(root: Path, person: str, app_id: str, pdf: Optional[Path] = None,
@@ -175,7 +228,8 @@ def ats_findings(root: Path, person: str, app_id: str, pdf: Optional[Path] = Non
             raise RHError("No PDF built yet for this application.", "Build it first: python scripts/rh.py build <person> <app>")
         pdf = latest[1]
     text, pages, tool = extract_pdf_text(pdf)
-    max_pages = max_pages or int(rhlib.settings()["default_max_pages"])
+    target_pages = int(rhlib.app_settings(root, person, app_id).get("pages", 1))
+    max_pages = max_pages or max(int(rhlib.settings()["default_max_pages"]), target_pages)
     findings.append(_f("PASS", f"Text extracted with {tool}: {len(text)} characters."))
     if len(text.strip()) < 300:
         findings.append(_f("FAIL", "Almost no text could be extracted. An ATS would see an empty resume."))
@@ -286,6 +340,8 @@ def ats_findings(root: Path, person: str, app_id: str, pdf: Optional[Path] = Non
         else:
             findings.append(_f("PASS", "Each entry's organisation, location and dates stay next to its heading in the extracted text."))
 
+        findings.extend(page_break_findings(doc, text, pages))
+
     app = rhlib.read_json(rhlib.app_dir(root, person, app_id) / "app.json")
     analysis = rhlib.analysis_latest(root, app["company"], app["job"])
     if not analysis:
@@ -348,7 +404,9 @@ def run_ats(root: Path, person: str, app_id: str, pdf: Optional[Path] = None,
     md_text = md[1].read_text(encoding="utf-8")
     findings = (truth_findings(root, person, app_id)
                 + lint_resume.policy_findings(root, person, app_id, md_text)
-                + lint_resume.lint_findings(md_text) + findings)
+                + lint_resume.lint_findings(md_text)
+                + lint_resume.extra_document_findings(root, person, app_id)
+                + findings)
     d = rhlib.app_dir(root, person, app_id)
     path = rhlib.save_versioned(d, "ats-report", "md", render_report("ATS, policy, lint and truth check report", findings, coverage))
     return findings, path
